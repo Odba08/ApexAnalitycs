@@ -11,12 +11,15 @@ export class SportsApiService {
 
   constructor(private readonly prisma: PrismaService) {} // <--- 3. Inyectamos Prisma en el constructor
 
-  async obtenerPartidosDelDia(desde: string, hasta: string) {
+  async obtenerPartidosDelDia(desde: string, hasta: string, leagueId?: number) {
     try {
-      const url = `${this.baseUrl}?met=Fixtures&from=${desde}&to=${hasta}&APIkey=${this.apiKey}`;
+      let url = `${this.baseUrl}?met=Fixtures&from=${desde}&to=${hasta}&APIkey=${this.apiKey}`;
+      if (leagueId) {
+        url += `&leagueId=${leagueId}`;
+      }
       const respuesta = await axios.get(url);
 
-      if (respuesta.data && respuesta.data.result) {
+      if (respuesta.data && Array.isArray(respuesta.data.result)) {
         this.logger.log(
           `¡Se encontraron ${respuesta.data.result.length} partidos!`,
         );
@@ -67,6 +70,14 @@ export class SportsApiService {
       { id: 175, nombre: 'Bundesliga' },
       { id: 207, nombre: 'SerieA' },
       { id: 153, nombre: 'Championship' },
+      { id: 168, nombre: 'Ligue1' },
+      { id: 266, nombre: 'Portugal' },
+      { id: 244, nombre: 'Eredivisie' },
+      { id: 322, nombre: 'SuperLig' },
+      { id: 99, nombre: 'Brasileirao' },
+      { id: 278, nombre: 'Saudi' },
+      { id: 3, nombre: 'Champions' },
+      { id: 18, nombre: 'Libertadores' },
     ];
 
     for (const liga of ligas) {

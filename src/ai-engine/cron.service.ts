@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { AiEngineService, PartidoInput } from './ai-engine.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { InjectBot, Update, Command, Ctx, Action } from 'nestjs-telegraf';
+import { InjectBot, Update, Command, Ctx, Action, On } from 'nestjs-telegraf';
 import { Telegraf, Context, Markup } from 'telegraf';
 import { SportsApiService } from '../sports-api/sports-api.service';
 
@@ -15,8 +15,8 @@ export class ApuestasCronService {
   private readonly fechaPruebaDesde = '2026-09-18';
   private readonly fechaPruebaHasta = '2026-09-21';
 
-  // IDs Numéricos Oficiales de AllSportsAPI para las 5 ligas
-  private readonly targetLeagueKeys = [152, 302, 175, 207, 153];
+  // IDs Numéricos Oficiales de AllSportsAPI para las 13 competiciones top
+  private readonly targetLeagueKeys = [152, 302, 175, 207, 153, 168, 266, 244, 322, 99, 278, 3, 18];
 
   constructor(
     private readonly aiEngine: AiEngineService,
@@ -25,13 +25,16 @@ export class ApuestasCronService {
     private readonly sportsApi: SportsApiService,
   ) {}
 
-  // Helper para generar fechas vivas en tiempo real (ayer -> próximos 4 días)
-  private getRangoFechasDinamico(): { desde: string; hasta: string } {
+  // Helper para generar fechas vivas en tiempo real (por defecto 2 días atrás -> 7 días adelante, máximo 1 semana)
+  private getRangoFechasDinamico(
+    diasAtras: number = 2,
+    diasAdelante: number = 7,
+  ): { desde: string; hasta: string } {
     const hoy = new Date();
     const dDate = new Date(hoy);
-    dDate.setDate(hoy.getDate() - 1);
+    dDate.setDate(hoy.getDate() - diasAtras);
     const hDate = new Date(hoy);
-    hDate.setDate(hoy.getDate() + 4);
+    hDate.setDate(hoy.getDate() + diasAdelante);
 
     const format = (d: Date) => d.toISOString().split('T')[0];
     return { desde: format(dDate), hasta: format(hDate) };
@@ -68,6 +71,30 @@ export class ApuestasCronService {
     if (q.includes('championship') || q === 'e1') {
       return { id: 153, nombre: 'Championship' };
     }
+    if (q.includes('ligue') || q.includes('francia') || q === 'f1') {
+      return { id: 168, nombre: 'Ligue1' };
+    }
+    if (q.includes('portugal') || q.includes('primeira') || q === 'p1') {
+      return { id: 266, nombre: 'Portugal' };
+    }
+    if (q.includes('eredivisie') || q.includes('holanda') || q.includes('netherlands') || q === 'n1') {
+      return { id: 244, nombre: 'Eredivisie' };
+    }
+    if (q.includes('super') || q.includes('süper') || q.includes('turquia') || q.includes('turkey') || q === 't1') {
+      return { id: 322, nombre: 'SuperLig' };
+    }
+    if (q.includes('brasil') || q.includes('brasileirao') || q === 'b1') {
+      return { id: 99, nombre: 'Brasileirao' };
+    }
+    if (q.includes('saudi') || q.includes('arabia') || q.includes('pro league')) {
+      return { id: 278, nombre: 'Saudi' };
+    }
+    if (q.includes('champions') || q.includes('uefa') || q.includes('cl')) {
+      return { id: 3, nombre: 'Champions' };
+    }
+    if (q.includes('libertadores') || q.includes('conmebol') || q.includes('copa libertadores')) {
+      return { id: 18, nombre: 'Libertadores' };
+    }
     return null;
   }
 
@@ -79,14 +106,17 @@ export class ApuestasCronService {
   @Command('menu')
   @Command('ayuda')
   async comandoMenuPrincipal(@Ctx() ctx: Context) {
+    const usuario = ctx.from?.first_name || 'Inversionista';
     await ctx.reply(
-      '🤖 <b>PANEL DE CONTROL: BOT DE APUESTAS CUANTITATIVAS</b> 🤖\n\n' +
-        'Selecciona una opción del menú interactivo:',
+      `🤖 <b>¡HOLA ${usuario.toUpperCase()}! BIENVENIDO A APEX ANALYTICS</b> ⚽📊\n\n` +
+        `Soy tu bot de inteligencia cuantitativa deportiva. Analizo métricas Elo, forma reciente y modelos estadísticos Dixon-Coles para <b>13 competiciones top</b> (Champions, Libertadores, Premier, LaLiga, Serie A, etc.).\n\n` +
+        `👉 <b>Escribe o presiona /start en cualquier momento para ver este menú.</b>\n\n` +
+        `Selecciona una opción a continuación:`,
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('🏆 Explorar por Liga', 'menu_ligas'),
+            Markup.button.callback('🏆 Explorar Torneos (13 Top)', 'menu_ligas'),
             Markup.button.callback('⚽ Buscar Equipo', 'menu_equipo'),
           ],
           [
@@ -102,25 +132,65 @@ export class ApuestasCronService {
     );
   }
 
+  @On('text')
+  async mensajeTextoGenerico(@Ctx() ctx: Context) {
+    const text = (ctx.message as any)?.text || '';
+    if (text.startsWith('/')) return; // Ignorar si es un comando
+
+    const usuario = ctx.from?.first_name || 'Amigo';
+    await ctx.reply(
+      `👋 <b>¡Hola ${usuario}!</b>\n\n` +
+        `Para explorar las 13 competiciones, consultar rankings Elo o ver los mejores pronósticos cuantitativos, presiona o escribe <b>/start</b> para desplegar el panel principal.`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('🚀 Desplegar Menú Principal', 'menu_start_redirect'),
+          ],
+        ]),
+      },
+    );
+  }
+
+  @Action('menu_start_redirect')
+  async accionRedirectMenu(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    return this.comandoMenuPrincipal(ctx);
+  }
+
   @Command('liga')
   @Action('menu_ligas')
   async comandoSeleccionarLigaMenu(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
 
     await ctx.reply(
-      '🏆 <b>SELECCIONA UNA LIGA</b> 🏆\n\nElige una de las 5 ligas principales para ver su menú:',
+      '🏆 <b>SELECCIONA UNA COMPETICIÓN (13 TORNEOS TOP)</b> 🏆\n\nElige el torneo que deseas consultar:',
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League', 'liga_premier'),
-            Markup.button.callback('🇪🇸 LaLiga', 'liga_laliga'),
+            Markup.button.callback('🇪🇺 Champions League', 'liga_champions'),
+            Markup.button.callback('🏆 Copa Libertadores', 'liga_libertadores'),
           ],
           [
+            Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier', 'liga_premier'),
+            Markup.button.callback('🇪🇸 LaLiga', 'liga_laliga'),
             Markup.button.callback('🇩🇪 Bundesliga', 'liga_bundesliga'),
-            Markup.button.callback('🇮🇹 Serie A', 'liga_seriea'),
           ],
-          [Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship', 'liga_championship')],
+          [
+            Markup.button.callback('🇮🇹 Serie A', 'liga_seriea'),
+            Markup.button.callback('🇫🇷 Ligue 1', 'liga_ligue1'),
+            Markup.button.callback('🇵🇹 Portugal', 'liga_portugal'),
+          ],
+          [
+            Markup.button.callback('🇳🇱 Eredivisie', 'liga_eredivisie'),
+            Markup.button.callback('🇹🇷 Süper Lig', 'liga_superlig'),
+            Markup.button.callback('🇧🇷 Brasileirão', 'liga_brasileirao'),
+          ],
+          [
+            Markup.button.callback('🇸🇦 Saudi Pro League', 'liga_saudi'),
+            Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship', 'liga_championship'),
+          ],
         ]),
       },
     );
@@ -137,7 +207,7 @@ export class ApuestasCronService {
     if (!ligaInfo) return;
 
     await ctx.reply(
-      `⚽ <b>MENÚ LIGA: ${ligaInfo.nombre.toUpperCase()}</b> ⚽\n\n¿Qué información deseas consultar?`,
+      `⚽ <b>MENÚ COMPETICIÓN: ${ligaInfo.nombre.toUpperCase()}</b> ⚽\n\n¿Qué información deseas consultar?`,
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
@@ -161,7 +231,7 @@ export class ApuestasCronService {
               `opt_resultados_${ligaKey}`,
             ),
           ],
-          [Markup.button.callback('🔙 Volver a Ligas', 'menu_ligas')],
+          [Markup.button.callback('🔙 Volver a Torneos', 'menu_ligas')],
         ]),
       },
     );
@@ -196,6 +266,13 @@ export class ApuestasCronService {
         const name = row?.standing_team || row?.team_name || 'Equipo';
         mensaje += `<b>${row?.standing_place || '-'}. ${name}</b> | PJ: ${row?.standing_P || '0'} | PTS: <b>${row?.standing_PTS || '0'}</b> | DG: ${row?.standing_GD || '0'}\n`;
       });
+    } else if (ligaKey === 'champions' || ligaKey === 'libertadores') {
+      mensaje +=
+        `⚔️ <b>FASE DE ELIMINACIÓN DIRECTA (IDA Y VUELTA):</b>\n\n` +
+        `En etapas knockout (Octavos, Cuartos, Semifinales), no existe tabla de posiciones tradicional.\n\n` +
+        `👉 Para ver los enfrentamientos directos de Ida y Vuelta:\n` +
+        `• Selecciona <b>📅 Partidos de la Jornada</b> para ver los cruces programados.\n` +
+        `• Selecciona <b>🎯 Apuestas Recomendadas</b> para ver las probabilidades IA de quién gana cada duelo.`;
     } else {
       mensaje += 'ℹ️ No se pudo cargar la tabla de posiciones en este momento.';
     }
@@ -212,24 +289,28 @@ export class ApuestasCronService {
     const ligaInfo = this.resolverLigaKey(ligaKey);
     if (!ligaInfo) return;
 
-    const fechas = this.getRangoFechasDinamico();
-    let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta);
+    const fechas = this.getRangoFechasDinamico(2, 7);
+    let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta, ligaInfo.id);
     if (!partidos || partidos.length === 0) {
-      partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta);
+      partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta, ligaInfo.id);
     }
 
-    const partidosLiga = (partidos || []).filter(
-      (p: any) => parseInt(p?.league_key) === ligaInfo.id,
+    // Filtrar estrictamente partidos pendientes / próximos (sin resultado final aún)
+    const partidosPendientes = (partidos || []).filter(
+      (p: any) =>
+        parseInt(p?.league_key) === ligaInfo.id &&
+        (!p?.event_final_result || p.event_final_result.trim().length === 0),
     );
 
-    let mensaje = `📅 <b>PARTIDOS DEL FIN DE SEMANA (${ligaInfo.nombre.toUpperCase()}):</b>\n\n`;
-    if (partidosLiga.length > 0) {
-      partidosLiga.forEach((p: any) => {
-        const res = p?.event_final_result ? `(${p.event_final_result})` : '';
-        mensaje += `• <b>${p?.event_home_team || 'Local'} vs ${p?.event_away_team || 'Visitante'}</b> ${res}\n`;
+    let mensaje = `📅 <b>PRÓXIMOS PARTIDOS DE LA JORNADA (${ligaInfo.nombre.toUpperCase()}):</b>\n\n`;
+    if (partidosPendientes.length > 0) {
+      partidosPendientes.forEach((p: any) => {
+        const ronda = p?.league_round ? ` <i>[${p.league_round}]</i>` : '';
+        const fecha = p?.event_date ? ` - ${p.event_date}` : '';
+        mensaje += `• <b>${p?.event_home_team || 'Local'} vs ${p?.event_away_team || 'Visitante'}</b>${ronda}${fecha}\n`;
       });
     } else {
-      mensaje += 'ℹ️ No hay partidos en esta liga para las fechas del fin de semana.';
+      mensaje += 'ℹ️ No hay partidos pendientes o por jugar en los próximos días para este torneo.';
     }
 
     await ctx.reply(mensaje, { parse_mode: 'HTML' });
@@ -244,24 +325,25 @@ export class ApuestasCronService {
     const ligaInfo = this.resolverLigaKey(ligaKey);
     if (!ligaInfo) return;
 
-    const fechas = this.getRangoFechasDinamico();
-    let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta);
+    const fechas = this.getRangoFechasDinamico(2, 7);
+    let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta, ligaInfo.id);
     if (!partidos || partidos.length === 0) {
-      partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta);
+      partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta, ligaInfo.id);
     }
 
     const partidosLiga = (partidos || []).filter(
-      (p: any) => parseInt(p?.league_key) === ligaInfo.id,
+      (p: any) => parseInt(p?.league_key) === ligaInfo.id && p?.event_final_result && p.event_final_result.trim().length > 0,
     );
 
     let mensaje = `📋 <b>MARCADORES FINALES (${ligaInfo.nombre.toUpperCase()}):</b>\n\n`;
     if (partidosLiga.length > 0) {
       partidosLiga.forEach((p: any) => {
-        const res = p?.event_final_result || 'Pendiente';
-        mensaje += `⚽ <b>${p?.event_home_team || 'Local'} ${res} ${p?.event_away_team || 'Visitante'}</b> (Fecha: ${p?.event_date || ''})\n`;
+        const res = p?.event_final_result || 'Finalizado';
+        const ronda = p?.league_round ? ` [${p.league_round}]` : '';
+        mensaje += `⚽ <b>${p?.event_home_team || 'Local'} ${res} ${p?.event_away_team || 'Visitante'}</b>${ronda} (Fecha: ${p?.event_date || ''})\n`;
       });
     } else {
-      mensaje += 'ℹ️ No hay marcadores en esta liga para las fechas seleccionadas.';
+      mensaje += 'ℹ️ No hay marcadores finalizados en este torneo para las fechas seleccionadas.';
     }
 
     await ctx.reply(mensaje, { parse_mode: 'HTML' });
@@ -279,22 +361,25 @@ export class ApuestasCronService {
     }
 
     await ctx.reply(
-      '⚽ <b>BÚSQUEDA DE CLUB</b> ⚽\n\n' +
-        'Selecciona uno de los clubes populares o escribe <code>/equipo Nombre</code> (ej: <code>/equipo Como</code> o <code>/equipo Leeds</code>):',
+      '⚽ <b>BÚSQUEDA DE CLUB (13 COMPETICIONES TOP)</b> ⚽\n\n' +
+        'Selecciona uno de los clubes populares o escribe <code>/equipo Nombre</code> (ej: <code>/equipo Real Madrid</code>, <code>/equipo River Plate</code>, <code>/equipo PSG</code>, <code>/equipo Flamengo</code>):',
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('🇪🇸 Real Madrid', 'eq_real madrid'),
-            Markup.button.callback('🇪🇸 Barcelona', 'eq_barcelona'),
+            Markup.button.callback('🇪🇺 Real Madrid', 'eq_real madrid'),
+            Markup.button.callback('🇪🇺 Man City', 'eq_manchester city'),
+            Markup.button.callback('🇪🇺 Bayern', 'eq_bayern'),
           ],
           [
-            Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Chelsea', 'eq_chelsea'),
-            Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Leeds United', 'eq_leeds'),
+            Markup.button.callback('🏆 River Plate', 'eq_river plate'),
+            Markup.button.callback('🏆 Flamengo', 'eq_flamengo'),
+            Markup.button.callback('🏆 Palmeiras', 'eq_palmeiras'),
           ],
           [
-            Markup.button.callback('🇩🇪 Bayern München', 'eq_bayern'),
-            Markup.button.callback('🇮🇹 Como 1907', 'eq_como'),
+            Markup.button.callback('🇫🇷 Paris SG', 'eq_psg'),
+            Markup.button.callback('🇵🇹 Benfica', 'eq_benfica'),
+            Markup.button.callback('🇸🇦 Al-Nassr', 'eq_al nassr'),
           ],
         ]),
       },
@@ -316,18 +401,24 @@ export class ApuestasCronService {
 
     await ctx.reply(
       '🏆 <b>TOP APUESTAS REGISTRADAS EN BASE DE DATOS</b> 🏆\n\n' +
-        'Selecciona la liga para filtrar las mejores apuestas de la base de datos:',
+        'Selecciona el torneo para filtrar las mejores apuestas de la base de datos:',
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🌐 Todas las Ligas', 'top_todas')],
+          [Markup.button.callback('🌐 Todas las Competiciones', 'top_todas')],
+          [
+            Markup.button.callback('🇪🇺 Champions League', 'top_Champions'),
+            Markup.button.callback('🏆 Copa Libertadores', 'top_Libertadores'),
+          ],
           [
             Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier', 'top_Premier'),
             Markup.button.callback('🇪🇸 LaLiga', 'top_LaLiga'),
+            Markup.button.callback('🇫🇷 Ligue 1', 'top_Ligue1'),
           ],
           [
             Markup.button.callback('🇩🇪 Bundesliga', 'top_Bundesliga'),
             Markup.button.callback('🇮🇹 Serie A', 'top_SerieA'),
+            Markup.button.callback('🇧🇷 Brasileirao', 'top_Brasileirao'),
           ],
         ]),
       },
@@ -382,7 +473,7 @@ export class ApuestasCronService {
   @Command('actualizar')
   @Command('admin_actualizar')
   async comandoActualizarAdmin(@Ctx() ctx: Context) {
-    await ctx.reply('⏳ Actualizando clasificaciones y recalculando Elo para los 102 clubes...');
+    await ctx.reply('⏳ Actualizando clasificaciones y recalculando Elo para los clubes de los 13 torneos...');
     try {
       await this.sportsApi.actualizarEstadisticasEquipos();
       await ctx.reply('✅ ¡Actualización completada con éxito en PostgreSQL!');
@@ -426,7 +517,7 @@ export class ApuestasCronService {
   // Cron 1: Viernes a las 8:00 AM (Actualización previa a la jornada)
   @Cron('0 8 * * 5')
   async cronActualizarEloViernes() {
-    this.logger.log('⏰ Cronjob Viernes mañana: Actualizando clasificaciones y Elo...');
+    this.logger.log('⏰ Cronjob Viernes mañana: Actualizando clasificaciones y Elo de los 13 torneos...');
     await this.sportsApi.actualizarEstadisticasEquipos();
   }
 
@@ -602,7 +693,7 @@ export class ApuestasCronService {
   }
 
   // ------------------------------------------------------------------
-  // BÚSQUEDA ROBUSTA DE EQUIPOS (COMO, LEEDS, LEICESTER, ST. PAULI, ETC.)
+  // BÚSQUEDA ROBUSTA DE EQUIPOS (CHAMPIONS, LIBERTADORES, LIGAS TOP)
   // ------------------------------------------------------------------
 
   private async ejecutarBusquedaEquipo(query: string, ctx: Context) {
@@ -611,7 +702,19 @@ export class ApuestasCronService {
         parse_mode: 'HTML',
       });
 
-      const queryNorm = query.toLowerCase().trim();
+      let queryNorm = query.toLowerCase().trim();
+
+      // Normalizador de alias populares (ej: barca -> barcelona, real -> real madrid)
+      if (queryNorm === 'barca' || queryNorm === 'barça' || queryNorm === 'fcb') queryNorm = 'barcelona';
+      if (queryNorm === 'real' || queryNorm === 'rmcf' || queryNorm === 'merengues') queryNorm = 'real madrid';
+      if (queryNorm === 'atleti' || queryNorm === 'atletico') queryNorm = 'atletico madrid';
+      if (queryNorm === 'psg' || queryNorm === 'paris') queryNorm = 'paris sg';
+      if (queryNorm === 'mancity' || queryNorm === 'city') queryNorm = 'manchester city';
+      if (queryNorm === 'manutd' || queryNorm === 'united') queryNorm = 'manchester utd';
+      if (queryNorm === 'juve') queryNorm = 'juventus';
+      if (queryNorm === 'inter') queryNorm = 'inter';
+      if (queryNorm === 'boca') queryNorm = 'boca juniors';
+      if (queryNorm === 'river') queryNorm = 'river plate';
 
       // 1. Buscar en BD local
       let equiposBD = await this.prisma.equipo.findMany({
@@ -643,11 +746,14 @@ export class ApuestasCronService {
         );
       }
 
-      // 2. Obtener partidos en rango dinámico (con fallback a fecha de prueba)
-      const fechas = this.getRangoFechasDinamico();
-      let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta);
+      // 2. Obtener partidos en rango dinámico (hasta 21 días adelante para encontrar siempre su próximo cruce)
+      const fechas = this.getRangoFechasDinamico(2, 21);
+      const ligaInfo = this.resolverLigaKey(equipoPrincipal.liga);
+      const leagueId = ligaInfo ? ligaInfo.id : undefined;
+
+      let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta, leagueId);
       if (!partidos || partidos.length === 0) {
-        partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta);
+        partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta, leagueId);
       }
 
       const partidosOficiales = (partidos || []).filter((p: any) =>
@@ -658,8 +764,8 @@ export class ApuestasCronService {
       const isMatch = (apiTeam: string, targetName: string) => {
         const a = (apiTeam || '').toLowerCase();
         const t = (targetName || '').toLowerCase();
-        const cleanA = a.replace(/fc|1907|united|city|club|sporting/gi, '').trim();
-        const cleanT = t.replace(/fc|1907|united|city|club|sporting/gi, '').trim();
+        const cleanA = a.replace(/fc|1907|united|city|club|sporting|psg/gi, '').trim();
+        const cleanT = t.replace(/fc|1907|united|city|club|sporting|psg/gi, '').trim();
 
         return (
           a.includes(t) ||
@@ -668,7 +774,20 @@ export class ApuestasCronService {
         );
       };
 
-      const partidoEquipo = partidosOficiales.find((p: any) => {
+      const hoyStr = new Date().toISOString().split('T')[0];
+      const hoyMs = new Date().getTime();
+      const partidosOrdenados = [...partidosOficiales].sort((a: any, b: any) => {
+        const tA = a.event_date ? new Date(a.event_date).getTime() : 0;
+        const tB = b.event_date ? new Date(b.event_date).getTime() : 0;
+        return Math.abs(tA - hoyMs) - Math.abs(tB - hoyMs);
+      });
+
+      const proximosPartidos = partidosOrdenados.filter(
+        (p: any) => !p?.event_final_result || p.event_date >= hoyStr,
+      );
+      const partidosAConsultar = proximosPartidos.length > 0 ? proximosPartidos : partidosOrdenados;
+
+      const partidoEquipo = partidosAConsultar.find((p: any) => {
         const home = p?.event_home_team || '';
         const away = p?.event_away_team || '';
         return isMatch(home, queryNorm) || isMatch(away, queryNorm) ||
@@ -752,7 +871,7 @@ export class ApuestasCronService {
           `📊 <b>Estadísticas Cuantitativas del Club:</b>\n` +
           `• Rating Elo Actual: <b>${equipoPrincipal.elo.toFixed(1)}</b>\n` +
           `• Estado de Forma: <b>${equipoPrincipal.form5.toFixed(1)} / 100</b>\n\n` +
-          `ℹ️ <i>Sin partido programado en las 5 ligas para las fechas consultadas.</i>`;
+          `ℹ️ <i>Sin partido programado en las 13 competiciones para las fechas consultadas.</i>`;
       }
 
       await ctx.reply(mensaje, { parse_mode: 'HTML' });
@@ -767,15 +886,19 @@ export class ApuestasCronService {
     ctx: Context,
   ) {
     try {
-      const fechas = this.getRangoFechasDinamico();
-      let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta);
+      const fechas = this.getRangoFechasDinamico(2, 7);
+      let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta, ligaInfo.id);
       if (!partidos || partidos.length === 0) {
-        partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta);
+        partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta, ligaInfo.id);
       }
 
-      const partidosLiga = (partidos || []).filter(
+      const partidosLigaAll = (partidos || []).filter(
         (p: any) => parseInt(p?.league_key) === ligaInfo.id,
       );
+
+      // Priorizar partidos pendientes / próximos
+      const pendientes = partidosLigaAll.filter((p: any) => !p?.event_final_result || p.event_final_result.trim().length === 0);
+      const partidosLiga = pendientes.length > 0 ? pendientes : partidosLigaAll;
 
       let mensaje = `🏆 <b>APUESTAS DESTACADAS (${ligaInfo.nombre.toUpperCase()})</b> 🏆\n\n`;
 
@@ -851,13 +974,13 @@ export class ApuestasCronService {
           });
         }
       } else {
-        mensaje += `ℹ️ No hay partidos para esta liga en el fin de semana.`;
+        mensaje += `ℹ️ No hay partidos para esta competición en la jornada consultada.`;
       }
 
       await ctx.reply(mensaje, { parse_mode: 'HTML' });
     } catch (error) {
       this.logger.error('Error procesando apuestas liga', error);
-      await ctx.reply('❌ Error al obtener las apuestas de la liga.');
+      await ctx.reply('❌ Error al obtener las apuestas del torneo.');
     }
   }
 
@@ -924,7 +1047,7 @@ export class ApuestasCronService {
       const mensaje =
         `📊 <b>RESUMEN DEL MOTOR DE INTELIGENCIA ARTIFICIAL</b> 📊\n\n` +
         `🔹 Alertas Registradas en BD: <b>${totalAlertas}</b>\n` +
-        `⚙️ Algoritmo: <b>Calibrated Random Forest + Dixon-Coles Poisson</b>`;
+        `⚙️ Algoritmo: <b>Calibrated Random Forest + Dixon-Coles Poisson (13 Torneos Top)</b>`;
 
       await ctx.reply(mensaje, { parse_mode: 'HTML' });
     } catch (error) {
@@ -968,7 +1091,7 @@ export class ApuestasCronService {
       }
 
       this.logger.log(
-        `Procesando ${partidosOficiales.length} partidos oficiales de las 5 ligas...`,
+        `Procesando ${partidosOficiales.length} partidos oficiales de las 13 competiciones...`,
       );
 
       const partidosParaAnalizar: PartidoInput[] = [];
@@ -979,6 +1102,14 @@ export class ApuestasCronService {
         if (leagueKey === 175) return 'Bundesliga';
         if (leagueKey === 207) return 'SerieA';
         if (leagueKey === 153) return 'Championship';
+        if (leagueKey === 168) return 'Ligue1';
+        if (leagueKey === 266) return 'Portugal';
+        if (leagueKey === 244) return 'Eredivisie';
+        if (leagueKey === 322) return 'SuperLig';
+        if (leagueKey === 99) return 'Brasileirao';
+        if (leagueKey === 278) return 'Saudi';
+        if (leagueKey === 3) return 'Champions';
+        if (leagueKey === 18) return 'Libertadores';
         return null;
       };
 
@@ -1016,7 +1147,7 @@ export class ApuestasCronService {
       if (partidosParaAnalizar.length === 0) {
         if (ctx)
           await ctx.reply(
-            `ℹ️ Ninguno de los partidos encontrados pertenece a las 5 ligas soportadas.`,
+            `ℹ️ Ninguno de los partidos encontrados pertenece a las 13 competiciones soportadas.`,
           );
         return;
       }
