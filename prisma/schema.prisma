@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Catálogo vivo: Mantiene la "fuerza" matemática actualizada de cada club
+model Equipo {
+  id        Int      @id @default(autoincrement())
+  nombre    String   @unique
+  liga      String   
+  elo       Float    @default(1500.0) 
+  form5     Int      @default(0)      
+  form3     Int      @default(0)      
+  
+  updatedAt DateTime @updatedAt
+}
+
+// Historial financiero: Guarda las ineficiencias del mercado
+model AlertaValor {
+  id                  Int      @id @default(autoincrement())
+  partido             String
+  liga                String
+  mercadoRecomendado  String   
+  cuotaCasa           Float
+  probabilidadIA      Float
+  ventajaPorcentaje   Float    
+  stakeRecomendado    Float    @default(1.0)
+  estado              String   @default("PENDIENTE")
+  resultadoFinal      String?  
+  ejecutada           Boolean  @default(false) 
+  
+  createdAt           DateTime @default(now())
+}
