@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
+import { PrismaService } from '../prisma/prisma.service';
 
 export interface PropsUFC {
   metodos: {
@@ -95,10 +96,20 @@ export class UfcService {
   private readonly pythonUrl = process.env.PYTHON_ML_URL || 'http://localhost:8000';
   private readonly theOddsApiKey = process.env.THE_ODDS_API_KEY || '9c4667b47ad5ae80f5de259e91f8ff0f';
 
+  constructor(private readonly prisma: PrismaService) {}
+
   async obtenerCarteleraUFC(): Promise<PrediccionUFCResponse> {
     try {
       const res = await axios.get<PrediccionUFCResponse>(`${this.pythonUrl}/predecir-ufc`);
-      return res.data;
+      const data = res.data;
+      if (data && data.analisis_ufc) {
+        for (const c of data.analisis_ufc) {
+          if (c.has_value) {
+            await this.registrarAlertaUFC(c);
+          }
+        }
+      }
+      return data;
     } catch (error) {
       this.logger.error('Error conectando con el motor Python UFC', error.message);
       return {
@@ -130,7 +141,6 @@ export class UfcService {
       }
 
       // Filtrar únicamente los combates inminentes de este fin de semana / próximos 4 días
-      // Esto elimina permanentemente cuotas especulativas o de fantasía a años futuros (2027, 2028 como Gaethje vs Tsarukyan)
       const ahora = new Date().getTime();
       const eventosActivos = events.filter((e: any) => {
         if (!e.commence_time) return false;
@@ -170,10 +180,20 @@ export class UfcService {
 
       // Enviar a Python para inferencia cuantitativa con los CSVs de Greco y el modelo .pkl
       const aiRes = await axios.post(`${this.pythonUrl}/analizar-peleas-odds`, peleasPayload);
-      return {
+      const resultado = {
         ...aiRes.data,
         requests_remaining: requestsRemaining,
       };
+
+      if (resultado.combates) {
+        for (const c of resultado.combates) {
+          if (c.has_value) {
+            await this.registrarAlertaUFC(c);
+          }
+        }
+      }
+
+      return resultado;
     } catch (error) {
       this.logger.error('Error escaneando The-Odds-API', error.message);
       return {
@@ -182,6 +202,95 @@ export class UfcService {
         combates: [],
         error: `Error consultando The-Odds-API: ${error.message}`,
       };
+    }
+  }
+
+  async registrarAlertaUFC(c: CombateUFC | CombateTheOddsLive) {
+    try {
+      const pHome = (c as CombateUFC).red_fighter || (c as CombateTheOddsLive).fighter_home;
+      const pAway = (c as CombateUFC).blue_fighter || (c as CombateTheOddsLive).fighter_away;
+      const cat = (c as CombateUFC).weight_class || 'UFC MMA';
+      const pick = c.value_pick;
+      if (!c.has_value || !pick) return;
+
+      const partido = `${pHome} vs ${pAway}`;
+      const existing = await this.prisma.alertaValor.findFirst({
+        where: {
+          deporte: 'UFC',
+          partido,
+          mercadoRecomendado: pick,
+          estado: 'PENDIENTE',
+        },
+      });
+
+      if (!existing) {
+        await this.prisma.alertaValor.create({
+          data: {
+            deporte: 'UFC',
+            partido,
+            liga: cat,
+            mercadoRecomendado: pick,
+            cuotaCasa: c.value_odds || 1.8,
+            probabilidadIA: c.value_prob || 55.0,
+            ventajaPorcentaje: c.value_edge || 4.0,
+            stakeRecomendado: 1.0,
+            estado: 'PENDIENTE',
+          },
+        });
+        this.logger.log(`Registrada alerta de valor UFC: ${partido} -> ${pick}`);
+      }
+    } catch (err) {
+      this.logger.error('Error al registrar alerta de valor UFC', err.message);
+    }
+  }
+
+  async liquidarCombatesUFC(): Promise<number> {
+    try {
+      const pendientes = await this.prisma.alertaValor.findMany({
+        where: { deporte: 'UFC', estado: 'PENDIENTE' },
+      });
+      if (pendientes.length === 0) return 0;
+
+      const url = `https://api.the-odds-api.com/v4/sports/mma_mixed_martial_arts/scores/?apiKey=${this.theOddsApiKey}&daysFrom=3`;
+      const res = await axios.get(url, { headers: { 'User-Agent': 'AntigravityBot/1.0' } });
+      const completedEvents = (res.data || []).filter((e: any) => e.completed);
+
+      let liquidadas = 0;
+      for (const alerta of pendientes) {
+        const teams = alerta.partido.split(' vs ');
+        if (teams.length < 2) continue;
+        const f1 = teams[0].trim().toLowerCase();
+        const f2 = teams[1].trim().toLowerCase();
+
+        const match = completedEvents.find((e: any) => {
+          const h = (e.home_team || '').toLowerCase();
+          const a = (e.away_team || '').toLowerCase();
+          return (h.includes(f1) && a.includes(f2)) || (h.includes(f2) && a.includes(f1));
+        });
+
+        if (match && match.scores && match.scores.length >= 2) {
+          const sHome = parseInt(match.scores.find((s: any) => s.name === match.home_team)?.score || '0');
+          const sAway = parseInt(match.scores.find((s: any) => s.name === match.away_team)?.score || '0');
+          const winner = sHome > sAway ? match.home_team : (sAway > sHome ? match.away_team : null);
+
+          if (winner) {
+            const isGanada = alerta.mercadoRecomendado.toLowerCase().includes(winner.toLowerCase());
+            await this.prisma.alertaValor.update({
+              where: { id: alerta.id },
+              data: {
+                estado: isGanada ? 'GANADA' : 'PERDIDA',
+                resultadoFinal: `Ganador: ${winner}`,
+                ejecutada: true,
+              },
+            });
+            liquidadas++;
+          }
+        }
+      }
+      return liquidadas;
+    } catch (err) {
+      this.logger.error('Error liquidando combates UFC', err.message);
+      return 0;
     }
   }
 

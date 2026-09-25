@@ -201,10 +201,40 @@ export class ApuestasCronService {
             Markup.button.callback('⭐️ Ranking BD Equipos', 'top_todas'),
           ],
           [
-            Markup.button.callback('📈 Rendimiento ROI / P&L', 'menu_roi'),
-            Markup.button.callback('📊 Estadísticas IA', 'menu_stats'),
+            Markup.button.callback('📱 Dashboard WebApp', 'menu_webapp_info'),
+            Markup.button.callback('📈 Rendimiento ROI', 'menu_roi'),
+          ],
+          [
+            Markup.button.callback('📊 Estadísticas del Motor IA', 'menu_stats'),
           ],
         ]),
+      },
+    );
+  }
+
+  @Action('menu_webapp_info')
+  async accionWebappInfo(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    const port = process.env.PORT || 3000;
+    const url = process.env.WEBAPP_URL || `http://localhost:${port}/dashboard`;
+    const isHttps = url.startsWith('https://');
+
+    const buttons: any[] = [];
+    if (isHttps) {
+      buttons.push([Markup.button.url('🌐 Abrir Dashboard en Navegador', url)]);
+    }
+    buttons.push([Markup.button.callback('🔙 Volver al Menú', 'menu_start_redirect')]);
+
+    await ctx.reply(
+      `📱 <b>DASHBOARD VISUAL INTERACTIVO</b> 📱\n\n` +
+      `Puedes abrir el panel gráfico con métricas en tiempo real en tu navegador o como Telegram Mini App:\n\n` +
+      `🔗 <b>Enlace de acceso:</b>\n<code>${url}</code>\n\n` +
+      (isHttps
+        ? `<i>Presiona el botón de abajo para abrirlo en tu navegador o Telegram WebApp.</i>`
+        : `<i>Copia y pega la dirección de arriba en tu navegador (Chrome, Edge) para ver el dashboard local.</i>`),
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard(buttons),
       },
     );
   }
@@ -1207,6 +1237,120 @@ export class ApuestasCronService {
   }
 
   // ------------------------------------------------------------------
+  // NOTIFICACIONES PUSH PROACTIVAS (ALERTAS AUTOMÁTICAS DE FIN DE SEMANA)
+  // ------------------------------------------------------------------
+
+  // Push 1: Viernes 17:00 (Alerta Cartelera UFC y +EV)
+  @Cron('0 17 * * 5')
+  async cronAlertaPushUFC() {
+    this.logger.log('📢 Ejecutando cron push proactivo de UFC (Viernes)...');
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    if (!chatId) return;
+
+    try {
+      const data = await this.ufcService.obtenerCarteleraUFC();
+      if (!data || !data.analisis_ufc) return;
+
+      const conValor = data.analisis_ufc.filter((c) => c.has_value);
+      const div = '──────────────────────────────';
+      let msg = `🚨 <b>ALERTA PROACTIVA: UFC FIN DE SEMANA</b> 🥊\n` +
+                `<i>Nuevas cuotas oficiales analizadas con Tale of the Tape</i>\n` +
+                `${div}\n\n`;
+
+      if (conValor.length > 0) {
+        msg += `Se han detectado <b>${conValor.length} oportunidades con ventaja matemática (+EV)</b>:\n\n`;
+        conValor.slice(0, 3).forEach((c, idx) => {
+          msg += `<b>${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter}</b>\n` +
+                 `• Selección: <b>${c.value_pick}</b> | Cuota: <b>${c.value_odds}</b> (IA: ${Math.round(c.value_prob || 0)}%)\n` +
+                 `• Ventaja (+EV): <b>+${c.value_edge}%</b>\n\n`;
+        });
+      } else {
+        msg += `La cartelera está equilibrada. Consulta el menú UFC para ver el desglose de Asaltos y Métodos de Victoria.\n`;
+      }
+
+      await this.bot.telegram.sendMessage(chatId, msg, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🧠 Ver Estrategia UFC', 'opt_ufc_estrategia')],
+          [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera')],
+        ]),
+      });
+    } catch (err) {
+      this.logger.error('Error enviando push proactivo de UFC', err);
+    }
+  }
+
+  // Push 2: Sábado 15:30 (Alerta F1 Post-Qualy y Monte Carlo)
+  @Cron('30 15 * * 6')
+  async cronAlertaPushF1() {
+    this.logger.log('📢 Ejecutando cron push proactivo de F1 (Sábado post-qualy)...');
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    if (!chatId) return;
+
+    try {
+      const f1Data = await this.f1Service.analizarProximoGP();
+      if (!f1Data || f1Data.error) return;
+
+      const gp = f1Data.gp;
+      const div = '──────────────────────────────';
+      let msg = `🚨 <b>ALERTA PROACTIVA: FÓRMULA 1</b> 🏎️\n` +
+                `<b>${gp ? gp.nombre.toUpperCase() : 'GRAN PREMIO'}</b>\n` +
+                `<i>Simulación Monte Carlo (5,000 iteraciones) actualizada</i>\n` +
+                `${div}\n\n`;
+
+      if (f1Data.predicciones_top) {
+        const w = f1Data.predicciones_top.probabilidad_victoria;
+        const pole = f1Data.predicciones_top.pole_position;
+        const podio = f1Data.predicciones_top.top3_podio || [];
+
+        if (pole) msg += `🎯 <b>Pole Position Proyectada:</b> ${pole.piloto} (${pole.probabilidad}%)\n`;
+        if (w) msg += `🏆 <b>Favorito a Victoria:</b> ${w.piloto} (${w.probabilidad}% | Cuota aprox: ${w.cuota_estimada})\n`;
+        if (podio.length > 0) {
+          msg += `🥇🥈🥉 <b>Podio más probable:</b>\n` +
+                 podio.slice(0, 3).map((p: any, i: number) => `  ${i + 1}. ${p.piloto} (${p.probabilidad}%)`).join('\n') + '\n';
+        }
+      }
+
+      await this.bot.telegram.sendMessage(chatId, msg, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🏎️ Ver Pronóstico Completo F1', 'opt_f1_pronostico')],
+          [Markup.button.callback('🏁 Parrilla y Telemetría', 'opt_f1_parrilla_completa')],
+        ]),
+      });
+    } catch (err) {
+      this.logger.error('Error enviando push proactivo de F1', err);
+    }
+  }
+
+  // Push 3: Domingo 09:30 (Alerta Jornada Dominical de Fútbol)
+  @Cron('30 9 * * 0')
+  async cronAlertaPushFutbol() {
+    this.logger.log('📢 Ejecutando cron push proactivo de Fútbol (Domingo)...');
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    if (!chatId) return;
+
+    try {
+      const div = '──────────────────────────────';
+      let msg = `🚨 <b>ALERTA PROACTIVA: JORNADA DE FÚTBOL</b> ⚽\n` +
+                `<i>Top Picks cuantitativos listos para los partidos de hoy</i>\n` +
+                `${div}\n\n` +
+                `Los modelos de Poisson Dixon-Coles y Calibrated Random Forest han analizado las 13 ligas activas.\n\n` +
+                `👉 Consulta las apuestas recomendadas y las bases para tus combinadas:`;
+
+      await this.bot.telegram.sendMessage(chatId, msg, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🎯 Top Apuestas del Día', 'menu_hoy')],
+          [Markup.button.callback('⚽ Ver Torneos y Ligas', 'menu_ligas')],
+        ]),
+      });
+    } catch (err) {
+      this.logger.error('Error enviando push proactivo de Fútbol', err);
+    }
+  }
+
+  // ------------------------------------------------------------------
   // LÓGICA DE NEGOCIO Y PROCESAMIENTO
   // ------------------------------------------------------------------
 
@@ -1254,59 +1398,70 @@ export class ApuestasCronService {
   }
 
   async liquidarApuestasPendientes() {
-    this.logger.log('Iniciando proceso de liquidación de apuestas pendientes...');
+    this.logger.log('Iniciando proceso de liquidación de apuestas pendientes multideporte...');
+    let liquidadasTotal = 0;
     try {
-      const pendientes = await this.prisma.alertaValor.findMany({
-        where: { estado: 'PENDIENTE' },
+      // 1. Liquidación Fútbol
+      const pendientesFutbol = await this.prisma.alertaValor.findMany({
+        where: { deporte: 'FUTBOL', estado: 'PENDIENTE' },
       });
 
-      if (pendientes.length === 0) return 0;
+      if (pendientesFutbol.length > 0) {
+        const fechas = this.getRangoFechasDinamico();
+        let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta);
+        if (!partidos || partidos.length === 0) {
+          partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta);
+        }
 
-      const fechas = this.getRangoFechasDinamico();
-      let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta);
-      if (!partidos || partidos.length === 0) {
-        partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta);
-      }
+        for (const alerta of pendientesFutbol) {
+          const teams = alerta.partido.split(' vs ');
+          if (teams.length < 2) continue;
+          const hName = teams[0].trim().toLowerCase();
+          const aName = teams[1].trim().toLowerCase();
 
-      let liquidadas = 0;
+          const fixture = (partidos || []).find((p: any) => {
+            const pHome = (p?.event_home_team || '').toLowerCase();
+            const pAway = (p?.event_away_team || '').toLowerCase();
+            return pHome.includes(hName) || pAway.includes(aName);
+          });
 
-      for (const alerta of pendientes) {
-        const teams = alerta.partido.split(' vs ');
-        if (teams.length < 2) continue;
-        const hName = teams[0].trim().toLowerCase();
-        const aName = teams[1].trim().toLowerCase();
-
-        const fixture = (partidos || []).find((p: any) => {
-          const pHome = (p?.event_home_team || '').toLowerCase();
-          const pAway = (p?.event_away_team || '').toLowerCase();
-          return pHome.includes(hName) || pAway.includes(aName);
-        });
-
-        if (fixture && fixture.event_final_result) {
-          const resEst = this.evaluarResultadoApuesta(
-            alerta.mercadoRecomendado,
-            fixture.event_final_result,
-            teams[0],
-            teams[1],
-          );
-          if (resEst !== 'ANULADA') {
-            await this.prisma.alertaValor.update({
-              where: { id: alerta.id },
-              data: {
-                estado: resEst,
-                resultadoFinal: fixture.event_final_result,
-                ejecutada: true,
-              },
-            });
-            liquidadas++;
+          if (fixture && fixture.event_final_result) {
+            const resEst = this.evaluarResultadoApuesta(
+              alerta.mercadoRecomendado,
+              fixture.event_final_result,
+              teams[0],
+              teams[1],
+            );
+            if (resEst !== 'ANULADA') {
+              await this.prisma.alertaValor.update({
+                where: { id: alerta.id },
+                data: {
+                  estado: resEst,
+                  resultadoFinal: fixture.event_final_result,
+                  ejecutada: true,
+                },
+              });
+              liquidadasTotal++;
+            }
           }
         }
       }
-      this.logger.log(`¡Se liquidaron ${liquidadas} apuestas pendientes!`);
-      return liquidadas;
+
+      // 2. Liquidación UFC
+      const liqUFC = await this.ufcService.liquidarCombatesUFC();
+      liquidadasTotal += liqUFC;
+
+      // 3. Liquidación F1
+      const liqF1 = await this.f1Service.liquidarCarrerasF1();
+      liquidadasTotal += liqF1;
+
+      if (liquidadasTotal > 0) {
+        this.logger.log(`¡Se liquidaron ${liquidadasTotal} apuestas pendientes en total (Fútbol, UFC, F1)!`);
+      }
+      return liquidadasTotal;
     } catch (error) {
       this.logger.error('Error al liquidar apuestas pendientes', error);
-      return 0;
+      return liquidadasTotal;
     }
   }
 
@@ -1322,54 +1477,75 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
 
     await ctx.reply(
-      '⏳ Calculando métricas de rendimiento cuantitativo y ROI...',
+      '⏳ Calculando métricas de rendimiento cuantitativo y ROI por deporte...',
     );
     await this.liquidarApuestasPendientes();
 
     try {
       const todas = await this.prisma.alertaValor.findMany();
-      const ganadas = todas.filter((a) => a.estado === 'GANADA');
-      const perdidas = todas.filter((a) => a.estado === 'PERDIDA');
-      const pendientes = todas.filter((a) => a.estado === 'PENDIENTE');
 
-      const totalLiquidadas = ganadas.length + perdidas.length;
-      let stakeTotal = 0;
-      let gananciaNeta = 0;
+      const calcStats = (items: typeof todas) => {
+        const ganadas = items.filter((a) => a.estado === 'GANADA');
+        const perdidas = items.filter((a) => a.estado === 'PERDIDA');
+        const pendientes = items.filter((a) => a.estado === 'PENDIENTE');
+        const totalLiq = ganadas.length + perdidas.length;
+        let stake = 0;
+        let pnl = 0;
 
-      ganadas.forEach((a) => {
-        stakeTotal += a.stakeRecomendado;
-        gananciaNeta += a.stakeRecomendado * (a.cuotaCasa - 1);
-      });
+        ganadas.forEach((a) => {
+          stake += a.stakeRecomendado;
+          pnl += a.stakeRecomendado * (a.cuotaCasa - 1);
+        });
+        perdidas.forEach((a) => {
+          stake += a.stakeRecomendado;
+          pnl -= a.stakeRecomendado;
+        });
 
-      perdidas.forEach((a) => {
-        stakeTotal += a.stakeRecomendado;
-        gananciaNeta -= a.stakeRecomendado;
-      });
+        const winRate = totalLiq > 0 ? (ganadas.length / totalLiq) * 100 : 0;
+        const roi = stake > 0 ? (pnl / stake) * 100 : 0;
+        return { total: items.length, ganadas: ganadas.length, perdidas: perdidas.length, pendientes: pendientes.length, totalLiq, stake, pnl, winRate, roi };
+      };
 
-      const winRate =
-        totalLiquidadas > 0 ? (ganadas.length / totalLiquidadas) * 100 : 0;
-      const roiPct = stakeTotal > 0 ? (gananciaNeta / stakeTotal) * 100 : 0;
-      const emoji = gananciaNeta >= 0 ? '📈' : '📉';
+      const futbolStats = calcStats(todas.filter((a) => a.deporte === 'FUTBOL'));
+      const f1Stats = calcStats(todas.filter((a) => a.deporte === 'F1'));
+      const ufcStats = calcStats(todas.filter((a) => a.deporte === 'UFC'));
+      const globalStats = calcStats(todas);
+
+      const div = '──────────────────────────────';
+      const emoji = globalStats.pnl >= 0 ? '📈' : '📉';
 
       let mensaje =
-        `${emoji} <b>INFORME DE RENDIMIENTO FINANCIERO & ROI (P&L)</b> ${emoji}\n\n` +
-        `📊 <b>Balance de Selección:</b>\n` +
-        `• Alertas Totales: <b>${todas.length}</b>\n` +
-        `• Liquidadas: <b>${totalLiquidadas}</b> (✅ Ganadas: ${ganadas.length} | ❌ Perdidas: ${perdidas.length})\n` +
-        `• En Juego (Pendientes): <b>${pendientes.length}</b>\n` +
-        `• Tasa de Acierto (Win Rate): <b>${winRate.toFixed(2)}%</b>\n\n` +
-        `💰 <b>Métricas Financieras (Kelly Bankroll Management):</b>\n` +
-        `• Stake Invertido: <b>${stakeTotal.toFixed(2)} u</b>\n` +
-        `• P&L Neto: <b>${gananciaNeta >= 0 ? '+' : ''}${gananciaNeta.toFixed(2)} u</b>\n` +
-        `• Yield / ROI Cuantitativo: <b>${roiPct >= 0 ? '+' : ''}${roiPct.toFixed(2)}%</b>\n`;
+        `${emoji} <b>AUDITORÍA DE RENDIMIENTO CUANTITATIVO & ROI</b> ${emoji}\n` +
+        `<i>Desglose financiero por disciplina deportiva</i>\n` +
+        `${div}\n\n` +
+        `⚽ <b>FÚTBOL (13 Ligas Oficiales):</b>\n` +
+        `• Pronósticos: <b>${futbolStats.total}</b> (✅ ${futbolStats.ganadas} | ❌ ${futbolStats.perdidas} | ⏳ ${futbolStats.pendientes})\n` +
+        `• Tasa de Acierto: <b>${futbolStats.winRate.toFixed(1)}%</b>\n` +
+        `• Rendimiento (ROI): <b>${futbolStats.roi >= 0 ? '+' : ''}${futbolStats.roi.toFixed(1)}%</b> (P&L: ${futbolStats.pnl >= 0 ? '+' : ''}${futbolStats.pnl.toFixed(2)} u)\n\n` +
+        `🏎️ <b>FÓRMULA 1 (Poles, Podios & Carreras):</b>\n` +
+        `• Pronósticos: <b>${f1Stats.total}</b> (✅ ${f1Stats.ganadas} | ❌ ${f1Stats.perdidas} | ⏳ ${f1Stats.pendientes})\n` +
+        `• Tasa de Acierto: <b>${f1Stats.winRate.toFixed(1)}%</b>\n` +
+        `• Rendimiento (ROI): <b>${f1Stats.roi >= 0 ? '+' : ''}${f1Stats.roi.toFixed(1)}%</b> (P&L: ${f1Stats.pnl >= 0 ? '+' : ''}${f1Stats.pnl.toFixed(2)} u)\n\n` +
+        `🥊 <b>UFC & MMA (Tale of the Tape / +EV):</b>\n` +
+        `• Pronósticos: <b>${ufcStats.total}</b> (✅ ${ufcStats.ganadas} | ❌ ${ufcStats.perdidas} | ⏳ ${ufcStats.pendientes})\n` +
+        `• Tasa de Acierto: <b>${ufcStats.winRate.toFixed(1)}%</b>\n` +
+        `• Rendimiento (ROI): <b>${ufcStats.roi >= 0 ? '+' : ''}${ufcStats.roi.toFixed(1)}%</b> (P&L: ${ufcStats.pnl >= 0 ? '+' : ''}${ufcStats.pnl.toFixed(2)} u)\n\n` +
+        `${div}\n` +
+        `💰 <b>BALANCE GLOBAL TOTAL:</b>\n` +
+        `• Total Selecciones: <b>${globalStats.total}</b>\n` +
+        `• Tasa de Acierto General: <b>${globalStats.winRate.toFixed(1)}%</b>\n` +
+        `• Balance Neto: <b>${globalStats.pnl >= 0 ? '+' : ''}${globalStats.pnl.toFixed(2)} unidades</b>\n` +
+        `• Rendimiento General (Yield / ROI): <b>${globalStats.roi >= 0 ? '+' : ''}${globalStats.roi.toFixed(2)}%</b>\n`;
 
       await ctx.reply(mensaje, {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('⚽ Menú Fútbol', 'menu_ligas'),
-            Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect'),
+            Markup.button.callback('⚽ Fútbol', 'menu_ligas'),
+            Markup.button.callback('🏎️ F1', 'menu_f1'),
+            Markup.button.callback('🥊 UFC', 'menu_ufc'),
           ],
+          [Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect')],
         ]),
       });
     } catch (error) {

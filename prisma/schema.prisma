@@ -22,6 +22,7 @@ model Equipo {
 // Historial financiero: Guarda las ineficiencias del mercado
 model AlertaValor {
   id                  Int      @id @default(autoincrement())
+  deporte             String   @default("FUTBOL") // "FUTBOL" | "F1" | "UFC"
   partido             String
   liga                String
   mercadoRecomendado  String   
@@ -29,7 +30,7 @@ model AlertaValor {
   probabilidadIA      Float
   ventajaPorcentaje   Float    
   stakeRecomendado    Float    @default(1.0)
-  estado              String   @default("PENDIENTE")
+  estado              String   @default("PENDIENTE") // "PENDIENTE" | "GANADA" | "PERDIDA" | "ANULADA"
   resultadoFinal      String?  
   ejecutada           Boolean  @default(false) 
   
@@ -74,5 +75,33 @@ model GranPremioF1 {
   fase        String   @default("Prácticas Libres FP1/FP2")
   poleName    String?
   winnerName  String?
+  updatedAt   DateTime @updatedAt
+}
+
+// Catálogo UFC: Mantiene estadísticas y ratings de los peleadores
+model PeleadorUFC {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @unique
+  categoria   String   @default("Unknown")
+  reachCm     Float    @default(0.0)
+  age         Int      @default(30)
+  sigStrMin   Float    @default(0.0)
+  avgTd15m    Float    @default(0.0)
+  subAvg15m   Float    @default(0.0)
+  tdDefPct    Float    @default(0.0)
+  strDefPct   Float    @default(0.0)
+  elo         Float    @default(1500.0)
+  victorias   Int      @default(0)
+  derrotas    Int      @default(0)
+  updatedAt   DateTime @updatedAt
+}
+
+// Eventos y Carteleras de UFC
+model EventoUFC {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @unique
+  fecha       String
+  sede        String?
+  estado      String   @default("PROGRAMADO") // "PROGRAMADO" | "FINALIZADO"
   updatedAt   DateTime @updatedAt
 }

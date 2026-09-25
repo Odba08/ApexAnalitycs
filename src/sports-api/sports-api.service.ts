@@ -8,24 +8,98 @@ export class SportsApiService {
   private readonly apiKey =
     process.env.ALLSPORTS_API_KEY || process.env.SPORTS_API_KEY;
   private readonly baseUrl = 'https://apiv2.allsportsapi.com/football/';
+  private readonly theOddsApiKey =
+    process.env.THE_ODDS_API_KEY || '9c4667b47ad5ae80f5de259e91f8ff0f';
 
-  constructor(private readonly prisma: PrismaService) {} // <--- 3. Inyectamos Prisma en el constructor
+  constructor(private readonly prisma: PrismaService) {}
+
+  private mapLeagueToTheOddsSport(leagueId?: number): string | null {
+    if (!leagueId) return null;
+    switch (leagueId) {
+      case 152: return 'soccer_epl'; // Premier League
+      case 302: return 'soccer_spain_la_liga'; // LaLiga
+      case 175: return 'soccer_germany_bundesliga'; // Bundesliga
+      case 207: return 'soccer_italy_serie_a'; // Serie A
+      case 168: return 'soccer_france_ligue_one'; // Ligue 1
+      case 3:   return 'soccer_uefa_champs_league'; // Champions League
+      case 18:  return 'soccer_conmebol_copa_libertadores'; // Copa Libertadores
+      case 99:  return 'soccer_brazil_campeonato'; // Brasileirao
+      case 244: return 'soccer_netherlands_eredivisie'; // Eredivisie
+      case 266: return 'soccer_portugal_primeira_liga'; // Portugal
+      case 153: return 'soccer_efl_champ'; // Championship
+      case 322: return 'soccer_turkey_super_league'; // SuperLig
+      default:  return null;
+    }
+  }
+
+  async obtenerPartidosTheOdds(leagueId?: number): Promise<any[]> {
+    const sportKey = this.mapLeagueToTheOddsSport(leagueId);
+    if (!sportKey) return [];
+
+    try {
+      this.logger.log(`Consultando The-Odds-API gratis para ${sportKey} (liga ${leagueId})...`);
+      const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?apiKey=${this.theOddsApiKey}&regions=eu&markets=h2h`;
+      const res = await axios.get(url, { headers: { 'User-Agent': 'AntigravityBot/1.0' } });
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        return res.data.map((m: any) => ({
+          event_key: m.id,
+          event_date: m.commence_time.slice(0, 10),
+          event_time: m.commence_time.slice(11, 16),
+          event_home_team: m.home_team,
+          event_away_team: m.away_team,
+          event_final_result: '',
+          event_status: '',
+          league_key: leagueId,
+        }));
+      }
+      return [];
+    } catch (err: any) {
+      this.logger.error(`Error consultando The-Odds-API para ${sportKey}: ${err.message}`);
+      return [];
+    }
+  }
 
   async obtenerPartidosDelDia(desde: string, hasta: string, leagueId?: number) {
     try {
+      let matches: any[] = [];
       let url = `${this.baseUrl}?met=Fixtures&from=${desde}&to=${hasta}&APIkey=${this.apiKey}`;
       if (leagueId) {
         url += `&leagueId=${leagueId}`;
       }
-      const respuesta = await axios.get(url);
 
-      if (respuesta.data && Array.isArray(respuesta.data.result)) {
-        this.logger.log(
-          `¡Se encontraron ${respuesta.data.result.length} partidos!`,
-        );
-        return respuesta.data.result;
+      try {
+        const respuesta = await axios.get(url);
+        if (respuesta.data && Array.isArray(respuesta.data.result) && respuesta.data.result.length > 0) {
+          matches = respuesta.data.result;
+        }
+      } catch (apiErr: any) {
+        this.logger.warn(`AllSportsAPI no disponible: ${apiErr.message}`);
       }
-      return [];
+
+      // Si AllSportsAPI no devolvió partidos (por trial restringido o fecha lejana), recurrir a The-Odds-API
+      if (matches.length === 0) {
+        if (leagueId) {
+          const oddsMatches = await this.obtenerPartidosTheOdds(leagueId);
+          if (oddsMatches.length > 0) {
+            this.logger.log(`Obtenidos ${oddsMatches.length} partidos vía The-Odds-API para liga ${leagueId}`);
+            return oddsMatches;
+          }
+        } else {
+          // Consultar Premier, LaLiga y Champions si no se especificó liga
+          const [epl, laliga, champs] = await Promise.all([
+            this.obtenerPartidosTheOdds(152),
+            this.obtenerPartidosTheOdds(302),
+            this.obtenerPartidosTheOdds(3),
+          ]);
+          matches = [...epl, ...laliga, ...champs];
+          if (matches.length > 0) {
+            this.logger.log(`Obtenidos ${matches.length} partidos combinados vía The-Odds-API`);
+            return matches;
+          }
+        }
+      }
+
+      return matches;
     } catch (error) {
       this.logger.error('Error al obtener partidos de la API', error);
       return [];
