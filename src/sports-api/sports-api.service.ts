@@ -39,7 +39,7 @@ export class SportsApiService {
     try {
       this.logger.log(`Consultando The-Odds-API gratis para ${sportKey} (liga ${leagueId})...`);
       const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?apiKey=${this.theOddsApiKey}&regions=eu&markets=h2h`;
-      const res = await axios.get(url, { headers: { 'User-Agent': 'AntigravityBot/1.0' } });
+      const res = await axios.get(url, { headers: { 'User-Agent': 'ApexAnalytics/1.0' } });
       if (Array.isArray(res.data) && res.data.length > 0) {
         return res.data.map((m: any) => ({
           event_key: m.id,

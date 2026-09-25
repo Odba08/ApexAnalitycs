@@ -125,7 +125,7 @@ export class UfcService {
     try {
       this.logger.log('Consultando The-Odds-API en vivo para MMA/UFC...');
       const url = `https://api.the-odds-api.com/v4/sports/mma_mixed_martial_arts/odds/?apiKey=${this.theOddsApiKey}&regions=us,eu&markets=h2h`;
-      const oddsRes = await axios.get(url, { headers: { 'User-Agent': 'AntigravityBot/1.0' } });
+      const oddsRes = await axios.get(url, { headers: { 'User-Agent': 'ApexAnalytics/1.0' } });
 
       const events = oddsRes.data || [];
       const requestsRemaining = oddsRes.headers['x-requests-remaining'] || 'N/A';
@@ -252,7 +252,7 @@ export class UfcService {
       if (pendientes.length === 0) return 0;
 
       const url = `https://api.the-odds-api.com/v4/sports/mma_mixed_martial_arts/scores/?apiKey=${this.theOddsApiKey}&daysFrom=3`;
-      const res = await axios.get(url, { headers: { 'User-Agent': 'AntigravityBot/1.0' } });
+      const res = await axios.get(url, { headers: { 'User-Agent': 'ApexAnalytics/1.0' } });
       const completedEvents = (res.data || []).filter((e: any) => e.completed);
 
       let liquidadas = 0;

@@ -37,11 +37,12 @@ export class AppController {
   @Get('dashboard')
   @Header('Content-Type', 'text/html')
   async getDashboard(): Promise<string> {
-    const [alertas, ufcData, f1Data, premierMatches] = await Promise.all([
+    const [alertas, ufcData, f1Data, premierMatches, f1Pilotos] = await Promise.all([
       this.prisma.alertaValor.findMany({ orderBy: { createdAt: 'desc' } }),
       this.ufcService.obtenerCarteleraUFC().catch(() => ({ analisis_ufc: [] })),
       this.f1Service.analizarProximoGP().catch(() => ({ gp: null, predicciones_top: null })),
       this.sportsApi.obtenerPartidosTheOdds(152).catch(() => []),
+      this.f1Service.obtenerMundialPilotos().catch(() => []),
     ]);
 
     const ufcCombates = (ufcData as any)?.analisis_ufc || [];
@@ -313,6 +314,40 @@ export class AppController {
             </div>
           </div>
         ` : '<p class="text-xs text-slate-500 py-3">Inicia los entrenamientos libres para calibrar la telemetría.</p>'}
+      </div>
+
+      <!-- Clasificación Mundial de Pilotos F1 -->
+      <div class="glass-card rounded-2xl p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-xs tracking-wider uppercase text-slate-300 flex items-center">
+            🏆 Clasificación Mundial de Pilotos (F1 2026)
+          </h3>
+          <span class="text-[11px] text-slate-500 font-mono">Calibrado con FIA & FastF1</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead>
+              <tr class="text-slate-400 border-b border-slate-800 pb-2">
+                <th class="py-2 font-semibold">Pos</th>
+                <th class="py-2 font-semibold">Piloto</th>
+                <th class="py-2 font-semibold">Escudería</th>
+                <th class="py-2 font-semibold">Rating Elo</th>
+                <th class="py-2 font-semibold text-right">Puntos Mundial</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800/60">
+              ${(f1Pilotos || []).slice(0, 6).map((piloto: any, idx: number) => `
+                <tr class="hover:bg-slate-800/30 transition">
+                  <td class="py-2.5 font-bold font-mono text-cyan-400">${idx + 1}</td>
+                  <td class="py-2.5 font-bold text-slate-100">${piloto.nombre}</td>
+                  <td class="py-2.5 text-slate-400">${piloto.escuderia}</td>
+                  <td class="py-2.5 font-mono text-emerald-400">${Math.round(piloto.elo)}</td>
+                  <td class="py-2.5 font-mono font-bold text-right text-amber-400">${piloto.puntosMundial} pts</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Registro de Selecciones F1 -->
