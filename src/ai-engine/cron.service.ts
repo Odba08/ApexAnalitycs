@@ -7,6 +7,7 @@ import { Telegraf, Context, Markup } from 'telegraf';
 import { SportsApiService } from '../sports-api/sports-api.service';
 
 import { F1Service } from './f1.service';
+import { UfcService } from './ufc.service';
 
 @Update()
 @Injectable()
@@ -26,6 +27,7 @@ export class ApuestasCronService {
     @InjectBot() private readonly bot: Telegraf,
     private readonly sportsApi: SportsApiService,
     private readonly f1Service: F1Service,
+    private readonly ufcService: UfcService,
   ) {}
 
   // Helper para generar fechas vivas en tiempo real (por defecto 2 días atrás -> 7 días adelante, máximo 1 semana)
@@ -41,6 +43,79 @@ export class ApuestasCronService {
 
     const format = (d: Date) => d.toISOString().split('T')[0];
     return { desde: format(dDate), hasta: format(hDate) };
+  }
+
+  // Helper para verificar si un partido sigue pendiente (no ha iniciado y no tiene marcador final)
+  private esPartidoPendiente(p: any): boolean {
+    const status = (p?.event_status || '').toLowerCase().trim();
+    if (
+      status === 'finished' ||
+      status === 'after et' ||
+      status === 'after pen'
+    ) {
+      return false;
+    }
+    const finalRes = (p?.event_final_result || '').trim();
+    if (
+      finalRes &&
+      finalRes !== '-' &&
+      finalRes !== '- -' &&
+      finalRes !== ' - '
+    ) {
+      const parts = finalRes.split('-').map((s: string) => s.trim());
+      if (
+        parts.length === 2 &&
+        !isNaN(parseInt(parts[0])) &&
+        !isNaN(parseInt(parts[1]))
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Obtener los próximos partidos pendientes de una liga buscando hasta 25 días adelante
+  private async obtenerPartidosPendientesLiga(leagueId: number) {
+    const hoy = new Date();
+    const hoyStr = hoy.toISOString().split('T')[0];
+    const futuro = new Date(hoy);
+    futuro.setDate(hoy.getDate() + 25);
+    const futuroStr = futuro.toISOString().split('T')[0];
+
+    const partidos = await this.sportsApi.obtenerPartidosDelDia(hoyStr, futuroStr, leagueId);
+    const pendientes = (partidos || []).filter(
+      (p: any) => parseInt(p?.league_key) === leagueId && this.esPartidoPendiente(p),
+    );
+
+    pendientes.sort((a: any, b: any) => {
+      const tA = new Date(a.event_date + 'T' + (a.event_time || '00:00')).getTime();
+      const tB = new Date(b.event_date + 'T' + (b.event_time || '00:00')).getTime();
+      return tA - tB;
+    });
+
+    return pendientes;
+  }
+
+  // Obtener los últimos resultados de una liga buscando hacia atrás hasta 25 días
+  private async obtenerPartidosFinalizadosLiga(leagueId: number) {
+    const hoy = new Date();
+    const hoyStr = hoy.toISOString().split('T')[0];
+    const pasado = new Date(hoy);
+    pasado.setDate(hoy.getDate() - 25);
+    const pasadoStr = pasado.toISOString().split('T')[0];
+
+    const partidos = await this.sportsApi.obtenerPartidosDelDia(pasadoStr, hoyStr, leagueId);
+    const finalizados = (partidos || []).filter(
+      (p: any) => parseInt(p?.league_key) === leagueId && !this.esPartidoPendiente(p),
+    );
+
+    finalizados.sort((a: any, b: any) => {
+      const tA = new Date(a.event_date + 'T' + (a.event_time || '00:00')).getTime();
+      const tB = new Date(b.event_date + 'T' + (b.event_time || '00:00')).getTime();
+      return tB - tA; // Más recientes primero
+    });
+
+    return finalizados;
   }
 
   private resolverLigaKey(input: string): { id: number; nombre: string } | null {
@@ -117,8 +192,9 @@ export class ApuestasCronService {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('⚽ FÚTBOL (13 Torneos Top)', 'menu_futbol'),
-            Markup.button.callback('🏎️ FÓRMULA 1 (Temporada 2026)', 'menu_f1'),
+            Markup.button.callback('⚽ FÚTBOL', 'menu_futbol'),
+            Markup.button.callback('🏎️ FÓRMULA 1', 'menu_f1'),
+            Markup.button.callback('🥊 UFC (+EV)', 'menu_ufc'),
           ],
           [
             Markup.button.callback('🎯 Top Apuestas Globales', 'menu_hoy'),
@@ -238,7 +314,7 @@ export class ApuestasCronService {
   @Action('opt_f1_pronostico')
   async accionF1Pronostico(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('⏳ <b>Analizando telemetría oficial FastF1 (FP1/FP2) y ejecutando simulación Monte Carlo...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('⏳ <b>Consultando telemetría oficial FastF1 (Libres, Sprint o Qualy) y ejecutando simulación Monte Carlo...</b>', { parse_mode: 'HTML' });
 
     const res = await this.f1Service.analizarProximoGP();
 
@@ -256,36 +332,42 @@ export class ApuestasCronService {
     const sortedPodium = [...analisis].sort((a: any, b: any) => b.raw_podium - a.raw_podium);
 
     const sesionReciente = res.sesion_mas_reciente || 'Practice 2';
+    const sesionesCargadas = res.sesiones_cargadas && res.sesiones_cargadas.length > 0
+      ? res.sesiones_cargadas.join(', ')
+      : sesionReciente;
+    const liderSesion = res.lider_sesion_reciente || { nombre: 'George Russell', equipo: 'Mercedes', sesion: sesionReciente };
     const esQualyHecha = !!res.qualy_completada;
+    const div = '──────────────────────────────';
 
-    let msg = `🏎️ <b>FÓRMULA 1 - PRONÓSTICOS OFICIALES FIA</b> 🏎️\n` +
+    let msg = `<b>FÓRMULA 1: PRONÓSTICOS OFICIALES</b>\n` +
               `🏁 <b>${gpNombre}</b>\n` +
-              `📍 <i>${circuito}</i> | 📅 <i>${fecha}</i>\n\n` +
-              `📡 <b>Estado de la Telemetría FastF1:</b>\n` +
-              `• <b>Última sesión procesada:</b> ${sesionReciente}\n` +
-              `• <b>Líderes de ritmos:</b> Russell (Mercedes) 1º en FP1 y FP2.\n\n`;
+              `📍 <i>${circuito}</i> | 📅 <i>${fecha}</i>\n` +
+              `${div}\n` +
+              `• Telemetría procesada: <b>${sesionesCargadas}</b>\n` +
+              `• Líder de sesión (${liderSesion.sesion}): <b>${liderSesion.nombre} (${liderSesion.equipo})</b>\n` +
+              `${div}\n\n`;
 
     if (esQualyHecha) {
       const poleMan = sortedPole[0];
-      msg += `🏁 <b>POLE POSITION CONFIRMADA (Q3):</b>\n` +
+      msg += `<b>POLE POSITION CONFIRMADA (Q3)</b>\n` +
              `🥇 <b>${poleMan.piloto}</b> (${poleMan.escuderia}) saldrá 1º en parrilla.\n\n`;
     } else {
-      msg += `⏱️ <b>FAVORITOS GANADOR POLE POSITION (Q3):</b>\n`;
+      msg += `⏱️ <b>FAVORITOS POLE POSITION (Q3):</b>\n`;
       sortedPole.slice(0, 5).forEach((p: any, idx: number) => {
         const medalla = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '•';
-        const fpInfo = `(Última Posición: P${p.latest_pos})`;
-        msg += `${medalla} <b>${p.piloto}</b> (${p.escuderia}) - Pole: <b>${p.prob_pole}</b> ${fpInfo}\n`;
+        const fpInfo = `(P${p.latest_pos} en libres)`;
+        msg += `${medalla} <b>${p.piloto}</b> (${p.escuderia}) — Pole: <b>${p.prob_pole}</b> ${fpInfo}\n`;
       });
     }
 
-    msg += `\n🏁 <b>FAVORITOS GANADOR DE CARRERA (P1):</b>\n`;
+    msg += `\n🏆 <b>FAVORITOS DE CARRERA (P1):</b>\n`;
     sortedWin.slice(0, 5).forEach((p: any, idx: number) => {
       const medalla = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '•';
-      msg += `${medalla} <b>${p.piloto}</b> (${p.escuderia}) - Victoria: <b>${p.prob_victoria}</b> (${p.victorias} Wins en 2026)\n`;
+      msg += `${medalla} <b>${p.piloto}</b> (${p.escuderia}) — Victoria: <b>${p.prob_victoria}</b> (${p.victorias} Wins)\n`;
     });
 
-    msg += `\n🏆 <b>PROBABILIDAD DE PODIO (TOP 3):</b>\n`;
-    sortedPodium.slice(0, 8).forEach((p: any) => {
+    msg += `\n📊 <b>PROBABILIDAD DE PODIO (TOP 3):</b>\n`;
+    sortedPodium.slice(0, 6).forEach((p: any) => {
       msg += `• <b>${p.piloto}</b> (${p.escuderia}): <b>${p.prob_podio}</b>\n`;
     });
 
@@ -359,6 +441,393 @@ export class ApuestasCronService {
     await ctx.reply(msg, { parse_mode: 'HTML' });
   }
 
+  // ------------------------------------------------------------------
+  // MENÚ INTERACTIVO UFC (MODELO CUANTITATIVO & +EV VALUE HUNTER)
+  // ------------------------------------------------------------------
+
+  @Action('menu_ufc')
+  async accionMenuUFC(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+
+    await ctx.reply(
+      '🥊 <b>CENTRO CUANTITATIVO UFC & MMA</b>\n\n' +
+        'Análisis estadístico de Tale of the Tape, probabilidades de finalización y cuotas en tiempo real.\n\n' +
+        'Selecciona una opción:',
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('🧠 Estrategia (Valor, Parlay & Descarte)', 'opt_ufc_estrategia'),
+          ],
+          [
+            Markup.button.callback('🏆 Apuestas con Valor (+EV)', 'opt_ufc_valor'),
+            Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'),
+          ],
+          [
+            Markup.button.callback('🎯 Asaltos & Métodos (Props)', 'opt_ufc_props_detail'),
+            Markup.button.callback('📡 Escáner en Vivo (+EV)', 'opt_ufc_the_odds'),
+          ],
+          [
+            Markup.button.callback('📊 Ventajas Físicas', 'opt_ufc_stats'),
+            Markup.button.callback('🔄 Actualizar Stats (Greco)', 'opt_ufc_sync_greco'),
+          ],
+          [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
+        ]),
+      },
+    );
+  }
+
+  @Action('opt_ufc_estrategia')
+  async accionUFCEstrategia(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Generando matriz estratégica inteligente (Valor, Parlays y Descartes)...</b>', { parse_mode: 'HTML' });
+
+    const data = await this.ufcService.obtenerCarteleraUFC();
+    if (data.error || !data.analisis_ufc) {
+      return ctx.reply('⚠️ No se pudieron obtener los datos de la UFC en este momento.');
+    }
+
+    const combates = data.analisis_ufc;
+    const tier1: any[] = [];
+    const tier2: any[] = [];
+    const tier3: any[] = [];
+
+    for (const c of combates) {
+      const isRedFav = c.prob_red >= c.prob_blue;
+      const favName = isRedFav ? c.red_fighter : c.blue_fighter;
+      const favProb = Math.max(c.prob_red, c.prob_blue);
+      const favOdds = isRedFav ? c.cuota_red : c.cuota_blue;
+      const probDiff = Math.abs(c.prob_red - c.prob_blue);
+
+      // Tier 1: Gran Valor (+EV significativo con prob >= 48% y cuota >= 1.65)
+      if (c.has_value && (c.value_odds || 0) >= 1.65 && (c.value_prob || 0) >= 48 && (c.value_edge || 0) >= 4.0) {
+        tier1.push({
+          peleador: c.value_pick,
+          rival: c.value_pick === c.red_fighter ? c.blue_fighter : c.red_fighter,
+          cuota: c.value_odds,
+          prob: Math.round(c.value_prob || 0),
+          edge: c.value_edge,
+          prop: c.props?.jugada_alternativa,
+        });
+        continue;
+      }
+
+      // Tier 2: Seguras / Bases para Parlay (probabilidad >= 58% y cuota pagable <= 1.65)
+      if (favProb >= 58 && favOdds <= 1.65) {
+        tier2.push({
+          peleador: favName,
+          rival: isRedFav ? c.blue_fighter : c.red_fighter,
+          cuota: favOdds,
+          prob: Math.round(favProb),
+          prop: c.props?.jugada_alternativa,
+        });
+        continue;
+      }
+
+      // Tier 3: Trampas / A Descartar
+      if (probDiff <= 6) {
+        tier3.push({
+          pelea: `${c.red_fighter} vs ${c.blue_fighter}`,
+          razon: `Moneda al aire (${Math.round(c.prob_red)}% vs ${Math.round(c.prob_blue)}%). Resultado impredecible en línea de ganador.`,
+        });
+      } else if (!c.has_value && favProb < 58 && favOdds < 1.75) {
+        tier3.push({
+          pelea: `${c.red_fighter} vs ${c.blue_fighter}`,
+          razon: `Falso favorito (${favName} @ ${favOdds}). Cuota baja para una probabilidad de solo ${Math.round(favProb)}%.`,
+        });
+      }
+    }
+
+    const div = '──────────────────────────────';
+    let msg = `🧠 <b>ESTRATEGIA INTELIGENTE UFC (3 NIVELES)</b>\n` +
+              `<i>Filtrado cuantitativo para armar tus apuestas del evento</i>\n` +
+              `${div}\n\n`;
+
+    // 1. GRAN VALOR
+    msg += `💎 <b>1. APUESTAS DE GRAN VALOR (+EV)</b>\n` +
+           `<i>Alta rentabilidad: Ganan estadísticamente y la cuota paga por encima de lo real</i>\n\n`;
+    if (tier1.length === 0) {
+      msg += `• <i>No hay peleadores en este rango con ventaja > +4%.</i>\n\n`;
+    } else {
+      tier1.forEach((t) => {
+        msg += `• <b>${t.peleador}</b> (vs ${t.rival})\n` +
+               `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b> | Edge: <b>+${t.edge}%</b>\n`;
+        if (t.prop) {
+          msg += `  🛡️ Jugada alternativa: <i>${t.prop}</i>\n`;
+        }
+        msg += `\n`;
+      });
+    }
+
+    // 2. BASES PARLAY
+    msg += `${div}\n` +
+           `🛡️ <b>2. OPCIONES SEGURAS (BASES PARA PARLAY)</b>\n` +
+           `<i>Máxima probabilidad pura (>58%) para combinar 2 o 3 opciones:</i>\n\n`;
+    if (tier2.length === 0) {
+      msg += `• <i>No se detectaron favoritos aplastantes con cuota protegida.</i>\n\n`;
+    } else {
+      tier2.forEach((t) => {
+        msg += `• <b>${t.peleador}</b> (vs ${t.rival})\n` +
+               `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b>\n`;
+        if (t.prop) {
+          msg += `  🛡️ Jugada alternativa: <i>${t.prop}</i>\n`;
+        }
+        msg += `\n`;
+      });
+    }
+
+    // 3. A DESCARTAR
+    msg += `${div}\n` +
+           `⚠️ <b>3. PELEAS A DESCARTAR (TRAMPAS / ALTO RIESGO)</b>\n` +
+           `<i>Evitar apostar al ganador (50/50 o cuotas castigadas sin valor):</i>\n\n`;
+    if (tier3.length === 0) {
+      msg += `• <i>Sin trampas detectadas en la cartelera.</i>\n\n`;
+    } else {
+      tier3.forEach((t) => {
+        msg += `• <b>${t.pelea}</b>\n` +
+               `  ⚠️ <i>${t.razon}</i>\n\n`;
+      });
+    }
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🎯 Asaltos & Métodos (Props)', 'opt_ufc_props_detail')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera')],
+        [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+      ]),
+    });
+  }
+
+  @Action('opt_ufc_the_odds')
+  async accionUFCTheOddsLive(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Escaneando casas de apuestas en vivo vía The-Odds-API...</b>', { parse_mode: 'HTML' });
+
+    const data = await this.ufcService.escanearTheOddsAPI();
+    if (data.error || !data.combates) {
+      return ctx.reply(`⚠️ ${data.error || 'No se pudieron consultar las cuotas en vivo.'}`);
+    }
+
+    const conValor = data.combates.filter((c) => c.has_value);
+    const div = '──────────────────────────────';
+
+    let msg = `<b>THE-ODDS-API: ESCÁNER EN VIVO (+EV)</b>\n` +
+              `<i>Casas de apuestas internacionales | Próximos combates</i>\n` +
+              `${div}\n\n`;
+
+    if (conValor.length === 0) {
+      msg += `<i>Todas las cuotas actuales están perfectamente equilibradas con el mercado (Edge < +3.0%).</i>\n`;
+    } else {
+      conValor.slice(0, 5).forEach((c, idx) => {
+        const p = c.props;
+        const fecha = c.commence_time ? c.commence_time.slice(0, 10) : '';
+        const fechaStr = fecha ? ` [${fecha}]` : '';
+        const probStr = Math.round(c.value_prob || 0);
+
+        msg += `<b>${idx + 1}. ${c.fighter_home} vs ${c.fighter_away}</b>${fechaStr}\n` +
+               `• <b>Selección con valor:</b> ${c.value_pick}\n` +
+               `• Cuota disponible: <b>${c.value_odds}</b> | Probabilidad IA: <b>${probStr}%</b>\n` +
+               `• Ventaja matemática (+EV): <b>+${c.value_edge}%</b>\n`;
+        if (p) {
+          msg += `• Vías de Victoria: KO/TKO: ${Math.round(p.metodos.ko_tko)}% | Sumisión: ${Math.round(p.metodos.sumision)}% | Decisión: ${Math.round(p.metodos.decision)}%\n` +
+                 `• Líneas de Asaltos: +1.5 Asaltos (${Math.round(p.asaltos.over_15)}%) | +2.5 Asaltos (${Math.round(p.asaltos.over_25)}%)\n` +
+                 `• Pronóstico de pelea: ${p.metodos.decision >= 50 ? 'Decisión / Tarjetas' : 'Finaliza antes del límite'} (${Math.round(p.distancia.va_distancia)}% a tarjetas)\n` +
+                 `• Jugada alternativa: <b>${p.jugada_alternativa}</b>\n`;
+        }
+        msg += `${div}\n`;
+      });
+    }
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🎯 Asaltos & Métodos (Props)', 'opt_ufc_props_detail')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera')],
+        [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+      ]),
+    });
+  }
+
+  @Action('opt_ufc_sync_greco')
+  async accionUFCSyncGreco(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Descargando archivos actualizados desde el GitHub de Greco1899...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.ufcService.sincronizarDatosGreco();
+    await ctx.reply(
+      `✅ <b>SINCRONIZACIÓN COMPLETADA</b>\n\n` +
+        `• <b>Estado:</b> ${res.status.toUpperCase()}\n` +
+        `• <b>Detalle:</b> ${res.mensaje}\n\n` +
+        `El diccionario de peleadores y las métricas de Tale of the Tape están 100% al día en memoria.`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🥊 Volver a UFC', 'menu_ufc')],
+        ]),
+      },
+    );
+  }
+
+  @Action('opt_ufc_valor')
+  async accionUFCValor(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Calculando apuestas con ventaja matemática (+EV)...</b>', { parse_mode: 'HTML' });
+
+    const data = await this.ufcService.obtenerCarteleraUFC();
+    if (data.error || !data.analisis_ufc) {
+      return ctx.reply('⚠️ No se pudieron obtener los datos de la UFC en este momento.');
+    }
+
+    const conValor = data.analisis_ufc.filter((c) => c.has_value);
+    const div = '──────────────────────────────';
+
+    let msg = `<b>UFC: APUESTAS CON VALOR (+EV)</b>\n` +
+              `<i>Oportunidades con ventaja matemática sobre el mercado</i>\n` +
+              `${div}\n\n`;
+
+    if (conValor.length === 0) {
+      msg += `<i>No se detectaron ineficiencias de mercado con ventaja >= +3.0% en esta cartelera.</i>\n`;
+    } else {
+      conValor.slice(0, 5).forEach((c, idx) => {
+        const p = c.props;
+        const categoria = c.weight_class ? ` (${c.weight_class})` : '';
+        const probStr = Math.round(c.value_prob || 0);
+
+        msg += `<b>${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter}</b>${categoria}\n` +
+               `• <b>Apuesta sugerida:</b> ${c.value_pick}\n` +
+               `• Cuota: <b>${c.value_odds}</b> | Probabilidad IA: <b>${probStr}%</b>\n` +
+               `• Ventaja matemática (+EV): <b>+${c.value_edge}%</b>\n`;
+        if (p) {
+          msg += `• Vías de Victoria: KO/TKO: ${Math.round(p.metodos.ko_tko)}% | Sumisión: ${Math.round(p.metodos.sumision)}% | Decisión: ${Math.round(p.metodos.decision)}%\n` +
+                 `• Líneas de Asaltos: +1.5 Asaltos (${Math.round(p.asaltos.over_15)}%) | +2.5 Asaltos (${Math.round(p.asaltos.over_25)}%)\n` +
+                 `• Pronóstico de pelea: ${p.metodos.decision >= 50 ? 'Decisión / Tarjetas' : 'Finaliza antes del límite'} (${Math.round(p.distancia.va_distancia)}% a tarjetas)\n` +
+                 `• Jugada alternativa: <b>${p.jugada_alternativa}</b>\n`;
+        }
+        msg += `${div}\n`;
+      });
+    }
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🎯 Asaltos & Métodos (Props)', 'opt_ufc_props_detail')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera')],
+        [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+      ]),
+    });
+  }
+
+  @Action('opt_ufc_cartelera')
+  async accionUFCCartelera(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+
+    const data = await this.ufcService.obtenerCarteleraUFC();
+    if (data.error || !data.analisis_ufc) {
+      return ctx.reply('⚠️ No se pudieron obtener los datos de la UFC.');
+    }
+
+    const div = '──────────────────────────────';
+    let msg = `<b>CARTELERA COMPLETA DE UFC</b>\n` +
+              `<i>Pronósticos y favoritos para cada combate</i>\n` +
+              `${div}\n\n`;
+
+    data.analisis_ufc.forEach((c, idx) => {
+      const p = c.props;
+      const fav = c.prob_red >= c.prob_blue ? c.red_fighter : c.blue_fighter;
+      const favProb = Math.max(c.prob_red, c.prob_blue);
+      const favOdds = c.prob_red >= c.prob_blue ? c.cuota_red : c.cuota_blue;
+      const valBadge = c.has_value ? ' <i>[+EV]</i>' : '';
+      const cat = c.weight_class ? ` (${c.weight_class})` : '';
+
+      msg += `<b>${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter}</b>${cat}\n` +
+             `• Favorito: <b>${fav}</b> (${Math.round(favProb)}% | Cuota ${favOdds})${valBadge}\n`;
+      if (p) {
+        msg += `• Vías de Victoria: KO/TKO: ${Math.round(p.metodos.ko_tko)}% | Sub: ${Math.round(p.metodos.sumision)}% | Dec: ${Math.round(p.metodos.decision)}%\n` +
+               `• Líneas de Asaltos: +1.5 Asaltos (${Math.round(p.asaltos.over_15)}%) | Prop: <b>${p.jugada_alternativa}</b>\n`;
+      }
+      msg += `${div}\n`;
+    });
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🎯 Asaltos & Métodos (Props)', 'opt_ufc_props_detail')],
+        [Markup.button.callback('🏆 Ver Solo Apuestas +EV', 'opt_ufc_valor')],
+        [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+      ]),
+    });
+  }
+
+  @Action('opt_ufc_props_detail')
+  async accionUFCPropsDetail(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Analizando asaltos, sumisiones y KO para toda la cartelera...</b>', { parse_mode: 'HTML' });
+
+    const data = await this.ufcService.obtenerCarteleraUFC();
+    if (data.error || !data.analisis_ufc) {
+      return ctx.reply('⚠️ No se pudieron obtener los props de la UFC.');
+    }
+
+    const div = '──────────────────────────────';
+    let msg = `<b>ANÁLISIS DE ASALTOS Y MÉTODOS (PROPS)</b>\n` +
+              `<i>Estimaciones por categoría de peso y estilo de combate</i>\n` +
+              `${div}\n\n`;
+
+    data.analisis_ufc.forEach((c, idx) => {
+      const p = c.props;
+      const cat = c.weight_class ? ` (${c.weight_class})` : '';
+      msg += `<b>${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter}</b>${cat}\n`;
+      if (p) {
+        msg += `• <b>Duración:</b> A Tarjetas (<b>${Math.round(p.distancia.va_distancia)}%</b>) | Finaliza antes: ${Math.round(p.distancia.no_distancia)}%\n` +
+               `• <b>Líneas de Asaltos:</b> Over 1.5 (<b>${Math.round(p.asaltos.over_15)}%</b>) | Over 2.5 (<b>${Math.round(p.asaltos.over_25)}%</b>)\n` +
+               `• <b>Vías de Victoria:</b> Decisión ${Math.round(p.metodos.decision)}% | Sumisión ${Math.round(p.metodos.sumision)}% | KO ${Math.round(p.metodos.ko_tko)}%\n` +
+               `• <b>Mejor opción:</b> <b>${p.jugada_alternativa}</b>\n`;
+      }
+      msg += `${div}\n`;
+    });
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🏆 Ver Apuestas de Ganador (+EV)', 'opt_ufc_valor')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera')],
+        [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+      ]),
+    });
+  }
+
+  @Action('opt_ufc_stats')
+  async accionUFCStats(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+
+    const data = await this.ufcService.obtenerCarteleraUFC();
+    if (data.error || !data.analisis_ufc) {
+      return ctx.reply('⚠️ No se pudieron obtener los datos.');
+    }
+
+    const div = '──────────────────────────────';
+    let msg = `<b>VENTAJAS FÍSICAS & ALCANCE (UFC)</b>\n` +
+              `<i>Diferenciales biométricos (Esquina Roja vs Esquina Azul)</i>\n` +
+              `${div}\n\n`;
+
+    data.analisis_ufc.slice(0, 6).forEach((c, idx) => {
+      msg += `<b>${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter}</b>\n` +
+             `• Diferencia de Alcance: <b>${c.reach_dif > 0 ? `+${c.reach_dif}` : c.reach_dif} cm</b>\n` +
+             `• Diferencia de Edad: <b>${c.age_dif > 0 ? `+${c.age_dif}` : c.age_dif} años</b>\n` +
+             `• Golpes por minuto: <b>${c.sig_str_dif > 0 ? `+${c.sig_str_dif}` : c.sig_str_dif}</b>\n` +
+             `• Derribos por 15m: <b>${c.avg_td_dif > 0 ? `+${c.avg_td_dif}` : c.avg_td_dif}</b>\n` +
+             `${div}\n`;
+    });
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🔙 Volver al Menú UFC', 'menu_ufc')],
+      ]),
+    });
+  }
+
   @Action(/liga_(.*)/)
   async accionOpcionesLiga(@Ctx() ctx: Context) {
     await ctx.answerCbQuery().catch(() => {});
@@ -376,6 +845,12 @@ export class ApuestasCronService {
         ...Markup.inlineKeyboard([
           [
             Markup.button.callback(
+              '🧠 Estrategia (Valor, Parlay & Descarte)',
+              `opt_estrategia_${ligaKey}`,
+            ),
+          ],
+          [
+            Markup.button.callback(
               '🎯 Apuestas Recomendadas',
               `opt_apuestas_${ligaKey}`,
             ),
@@ -386,7 +861,7 @@ export class ApuestasCronService {
           ],
           [
             Markup.button.callback(
-              '📅 Partidos del Fin de Semana',
+              '📅 Próximos Partidos',
               `opt_partidos_${ligaKey}`,
             ),
             Markup.button.callback(
@@ -394,10 +869,25 @@ export class ApuestasCronService {
               `opt_resultados_${ligaKey}`,
             ),
           ],
-          [Markup.button.callback('🔙 Volver a Torneos', 'menu_ligas')],
+          [
+            Markup.button.callback('🔙 Volver a Torneos', 'menu_ligas'),
+            Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect'),
+          ],
         ]),
       },
     );
+  }
+
+  @Action(/opt_estrategia_(.*)/)
+  async accionEstrategiaLiga(@Ctx() ctx: Context) {
+    await ctx.answerCbQuery().catch(() => {});
+    const match = (ctx as Context & { match?: RegExpMatchArray }).match;
+    if (!match || !match[1]) return;
+    const ligaKey = match[1];
+    const ligaInfo = this.resolverLigaKey(ligaKey);
+    if (!ligaInfo) return;
+
+    await this.procesarEstrategiaLiga(ligaInfo, ctx, ligaKey);
   }
 
   @Action(/opt_apuestas_(.*)/)
@@ -409,7 +899,7 @@ export class ApuestasCronService {
     const ligaInfo = this.resolverLigaKey(ligaKey);
     if (!ligaInfo) return;
 
-    await this.procesarApuestasDeLiga(ligaInfo, ctx);
+    await this.procesarApuestasDeLiga(ligaInfo, ctx, ligaKey);
   }
 
   @Action(/opt_tabla_(.*)/)
@@ -434,13 +924,22 @@ export class ApuestasCronService {
         `⚔️ <b>FASE DE ELIMINACIÓN DIRECTA (IDA Y VUELTA):</b>\n\n` +
         `En etapas knockout (Octavos, Cuartos, Semifinales), no existe tabla de posiciones tradicional.\n\n` +
         `👉 Para ver los enfrentamientos directos de Ida y Vuelta:\n` +
-        `• Selecciona <b>📅 Partidos de la Jornada</b> para ver los cruces programados.\n` +
+        `• Selecciona <b>📅 Próximos Partidos</b> para ver los cruces programados.\n` +
         `• Selecciona <b>🎯 Apuestas Recomendadas</b> para ver las probabilidades IA de quién gana cada duelo.`;
     } else {
       mensaje += 'ℹ️ No se pudo cargar la tabla de posiciones en este momento.';
     }
 
-    await ctx.reply(mensaje, { parse_mode: 'HTML' });
+    await ctx.reply(mensaje, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [
+          Markup.button.callback(`🔙 Volver a ${ligaInfo.nombre}`, `liga_${ligaKey}`),
+          Markup.button.callback('⚽ Ligas', 'menu_ligas'),
+          Markup.button.callback('🏠 Menú', 'menu_start_redirect'),
+        ],
+      ]),
+    });
   }
 
   @Action(/opt_partidos_(.*)/)
@@ -452,31 +951,29 @@ export class ApuestasCronService {
     const ligaInfo = this.resolverLigaKey(ligaKey);
     if (!ligaInfo) return;
 
-    const fechas = this.getRangoFechasDinamico(2, 7);
-    let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta, ligaInfo.id);
-    if (!partidos || partidos.length === 0) {
-      partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta, ligaInfo.id);
-    }
-
-    // Filtrar estrictamente partidos pendientes / próximos (sin resultado final aún)
-    const partidosPendientes = (partidos || []).filter(
-      (p: any) =>
-        parseInt(p?.league_key) === ligaInfo.id &&
-        (!p?.event_final_result || p.event_final_result.trim().length === 0),
-    );
+    const partidosPendientes = await this.obtenerPartidosPendientesLiga(ligaInfo.id);
 
     let mensaje = `📅 <b>PRÓXIMOS PARTIDOS DE LA JORNADA (${ligaInfo.nombre.toUpperCase()}):</b>\n\n`;
     if (partidosPendientes.length > 0) {
-      partidosPendientes.forEach((p: any) => {
+      partidosPendientes.slice(0, 10).forEach((p: any) => {
         const ronda = p?.league_round ? ` <i>[${p.league_round}]</i>` : '';
-        const fecha = p?.event_date ? ` - ${p.event_date}` : '';
-        mensaje += `• <b>${p?.event_home_team || 'Local'} vs ${p?.event_away_team || 'Visitante'}</b>${ronda}${fecha}\n`;
+        const fechaHora = p?.event_date ? ` (${p.event_date}${p?.event_time ? ' ' + p.event_time : ''})` : '';
+        mensaje += `• <b>${p?.event_home_team || 'Local'} vs ${p?.event_away_team || 'Visitante'}</b>${ronda}${fechaHora}\n`;
       });
     } else {
-      mensaje += 'ℹ️ No hay partidos pendientes o por jugar en los próximos días para este torneo.';
+      mensaje += 'ℹ️ No hay partidos pendientes o por jugar en las próximas semanas para este torneo.';
     }
 
-    await ctx.reply(mensaje, { parse_mode: 'HTML' });
+    await ctx.reply(mensaje, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [
+          Markup.button.callback(`🔙 Volver a ${ligaInfo.nombre}`, `liga_${ligaKey}`),
+          Markup.button.callback('⚽ Ligas', 'menu_ligas'),
+          Markup.button.callback('🏠 Menú', 'menu_start_redirect'),
+        ],
+      ]),
+    });
   }
 
   @Action(/opt_resultados_(.*)/)
@@ -488,28 +985,30 @@ export class ApuestasCronService {
     const ligaInfo = this.resolverLigaKey(ligaKey);
     if (!ligaInfo) return;
 
-    const fechas = this.getRangoFechasDinamico(2, 7);
-    let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta, ligaInfo.id);
-    if (!partidos || partidos.length === 0) {
-      partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta, ligaInfo.id);
-    }
-
-    const partidosLiga = (partidos || []).filter(
-      (p: any) => parseInt(p?.league_key) === ligaInfo.id && p?.event_final_result && p.event_final_result.trim().length > 0,
-    );
+    const partidosFinalizados = await this.obtenerPartidosFinalizadosLiga(ligaInfo.id);
 
     let mensaje = `📋 <b>MARCADORES FINALES (${ligaInfo.nombre.toUpperCase()}):</b>\n\n`;
-    if (partidosLiga.length > 0) {
-      partidosLiga.forEach((p: any) => {
+    if (partidosFinalizados.length > 0) {
+      partidosFinalizados.slice(0, 10).forEach((p: any) => {
         const res = p?.event_final_result || 'Finalizado';
         const ronda = p?.league_round ? ` [${p.league_round}]` : '';
-        mensaje += `⚽ <b>${p?.event_home_team || 'Local'} ${res} ${p?.event_away_team || 'Visitante'}</b>${ronda} (Fecha: ${p?.event_date || ''})\n`;
+        const fecha = p?.event_date ? ` (${p.event_date})` : '';
+        mensaje += `⚽ <b>${p?.event_home_team || 'Local'} ${res} ${p?.event_away_team || 'Visitante'}</b>${ronda}${fecha}\n`;
       });
     } else {
-      mensaje += 'ℹ️ No hay marcadores finalizados en este torneo para las fechas seleccionadas.';
+      mensaje += 'ℹ️ No hay marcadores finalizados recientes para este torneo.';
     }
 
-    await ctx.reply(mensaje, { parse_mode: 'HTML' });
+    await ctx.reply(mensaje, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [
+          Markup.button.callback(`🔙 Volver a ${ligaInfo.nombre}`, `liga_${ligaKey}`),
+          Markup.button.callback('⚽ Ligas', 'menu_ligas'),
+          Markup.button.callback('🏠 Menú', 'menu_start_redirect'),
+        ],
+      ]),
+    });
   }
 
   @Command('equipo')
@@ -612,6 +1111,14 @@ export class ApuestasCronService {
       if (topAlertas.length === 0) {
         return ctx.reply(
           `ℹ️ No hay apuestas registradas para el filtro seleccionado (${liga}).`,
+          {
+            ...Markup.inlineKeyboard([
+              [
+                Markup.button.callback('⚽ Menú Fútbol', 'menu_ligas'),
+                Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect'),
+              ],
+            ]),
+          },
         );
       }
 
@@ -622,7 +1129,15 @@ export class ApuestasCronService {
           `🎯 Apuesta Sugerida: <b>${a.mercadoRecomendado}</b>\n\n`;
       });
 
-      await ctx.reply(mensaje, { parse_mode: 'HTML' });
+      await ctx.reply(mensaje, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('⚽ Menú Fútbol', 'menu_ligas'),
+            Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect'),
+          ],
+        ]),
+      });
     } catch (error) {
       this.logger.error('Error en top filtro', error);
       await ctx.reply('❌ Error al consultar las apuestas registradas.');
@@ -848,7 +1363,15 @@ export class ApuestasCronService {
         `• P&L Neto: <b>${gananciaNeta >= 0 ? '+' : ''}${gananciaNeta.toFixed(2)} u</b>\n` +
         `• Yield / ROI Cuantitativo: <b>${roiPct >= 0 ? '+' : ''}${roiPct.toFixed(2)}%</b>\n`;
 
-      await ctx.reply(mensaje, { parse_mode: 'HTML' });
+      await ctx.reply(mensaje, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('⚽ Menú Fútbol', 'menu_ligas'),
+            Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect'),
+          ],
+        ]),
+      });
     } catch (error) {
       this.logger.error('Error en comando /roi', error);
       await ctx.reply('❌ Error al generar informe de ROI.');
@@ -1037,7 +1560,15 @@ export class ApuestasCronService {
           `ℹ️ <i>Sin partido programado en las 13 competiciones para las fechas consultadas.</i>`;
       }
 
-      await ctx.reply(mensaje, { parse_mode: 'HTML' });
+      await ctx.reply(mensaje, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('⚽ Menú Fútbol', 'menu_ligas'),
+            Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect'),
+          ],
+        ]),
+      });
     } catch (error) {
       this.logger.error('Error en busqueda equipo', error);
       await ctx.reply('❌ Error al consultar el equipo.');
@@ -1047,27 +1578,19 @@ export class ApuestasCronService {
   private async procesarApuestasDeLiga(
     ligaInfo: { id: number; nombre: string },
     ctx: Context,
+    ligaKey?: string,
   ) {
     try {
-      const fechas = this.getRangoFechasDinamico(2, 7);
-      let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta, ligaInfo.id);
-      if (!partidos || partidos.length === 0) {
-        partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta, ligaInfo.id);
-      }
+      const partidosPendientes = await this.obtenerPartidosPendientesLiga(ligaInfo.id);
 
-      const partidosLigaAll = (partidos || []).filter(
-        (p: any) => parseInt(p?.league_key) === ligaInfo.id,
-      );
+      const div = '──────────────────────────────';
+      let mensaje = `<b>FÚTBOL: APUESTAS RECOMENDADAS</b>\n` +
+                    `<i>${ligaInfo.nombre.toUpperCase()}</i>\n` +
+                    `${div}\n\n`;
 
-      // Priorizar partidos pendientes / próximos
-      const pendientes = partidosLigaAll.filter((p: any) => !p?.event_final_result || p.event_final_result.trim().length === 0);
-      const partidosLiga = pendientes.length > 0 ? pendientes : partidosLigaAll;
-
-      let mensaje = `🏆 <b>APUESTAS DESTACADAS (${ligaInfo.nombre.toUpperCase()})</b> 🏆\n\n`;
-
-      if (partidosLiga.length > 0) {
+      if (partidosPendientes.length > 0) {
         const partidosInput: PartidoInput[] = [];
-        for (const p of partidosLiga.slice(0, 10)) {
+        for (const p of partidosPendientes.slice(0, 10)) {
           const h = p?.event_home_team || '';
           const a = p?.event_away_team || '';
           if (!h || !a) continue;
@@ -1129,21 +1652,197 @@ export class ApuestasCronService {
 
             mensaje +=
               `⚽ <b>${pred.partido}</b>\n` +
-              `🎯 <b>Apuesta Sugerida:</b> ${recomendada}\n` +
-              `⚽ <b>xG:</b> ${xgL} vs ${xgV} | 🎲 <b>Top Marcadores:</b> ${marcadoresStr}\n` +
-              `📊 <b>Probabilidades:</b> Local ${pred.probabilidades_1X2.Victoria_Local} | Empate ${pred.probabilidades_1X2.Empate} | Visitante ${pred.probabilidades_1X2.Victoria_Visitante}\n` +
-              `• <b>Doble Op:</b> 1X ${pred.doble_oportunidad?.['1X'] || '0%'} | X2 ${pred.doble_oportunidad?.X2 || '0%'}\n` +
-              `• <b>Goles:</b> Over 2.5: ${pred.mercado_goles?.Over_2_5 || '0%'} | <b>BTTS:</b> Sí ${pred.ambos_anotan?.Si || '0%'}\n\n`;
+              `• <b>Pronóstico IA:</b> ${recomendada}\n` +
+              `• <b>Probabilidades 1X2:</b> Local ${pred.probabilidades_1X2.Victoria_Local} | Empate ${pred.probabilidades_1X2.Empate} | Visitante ${pred.probabilidades_1X2.Victoria_Visitante}\n` +
+              `• <b>Goles y Métricas:</b> xG ${xgL} - ${xgV} | Over 2.5: ${pred.mercado_goles?.Over_2_5 || '0%'} | Ambos anotan: Sí (${pred.ambos_anotan?.Si || '0%'})\n` +
+              `• <b>Marcadores más probables:</b> ${marcadoresStr}\n` +
+              `• <b>Doble Oportunidad:</b> 1X (${pred.doble_oportunidad?.['1X'] || '0%'}) | X2 (${pred.doble_oportunidad?.X2 || '0%'})\n` +
+              `${div}\n`;
           });
         }
       } else {
-        mensaje += `ℹ️ No hay partidos para esta competición en la jornada consultada.`;
+        mensaje += `ℹ️ No hay partidos pendientes programados en las próximas fechas para esta competición.\n`;
       }
 
-      await ctx.reply(mensaje, { parse_mode: 'HTML' });
+      const navRow: any[] = [];
+      if (ligaKey) {
+        navRow.push(Markup.button.callback(`🔙 Volver a ${ligaInfo.nombre}`, `liga_${ligaKey}`));
+      }
+      navRow.push(Markup.button.callback('⚽ Ligas', 'menu_ligas'));
+      navRow.push(Markup.button.callback('🏠 Menú', 'menu_start_redirect'));
+
+      await ctx.reply(mensaje, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([navRow]),
+      });
     } catch (error) {
       this.logger.error('Error procesando apuestas liga', error);
       await ctx.reply('❌ Error al obtener las apuestas del torneo.');
+    }
+  }
+
+  private async procesarEstrategiaLiga(
+    ligaInfo: { id: number; nombre: string },
+    ctx: Context,
+    ligaKey?: string,
+  ) {
+    try {
+      await ctx.reply('⏳ <b>Analizando partidos y clasificando por estrategia (Valor, Parlays y Descartes)...</b>', { parse_mode: 'HTML' });
+      const partidosPendientes = await this.obtenerPartidosPendientesLiga(ligaInfo.id);
+
+      const div = '──────────────────────────────';
+      let mensaje = `🧠 <b>ESTRATEGIA INTELIGENTE FÚTBOL (3 NIVELES)</b>\n` +
+                    `<i>${ligaInfo.nombre.toUpperCase()} | Clasificación Cuantitativa</i>\n` +
+                    `${div}\n\n`;
+
+      if (partidosPendientes.length > 0) {
+        const partidosInput: PartidoInput[] = [];
+        for (const p of partidosPendientes.slice(0, 10)) {
+          const h = p?.event_home_team || '';
+          const a = p?.event_away_team || '';
+          if (!h || !a) continue;
+
+          const lDB = await this.prisma.equipo.findFirst({
+            where: { nombre: { contains: h, mode: 'insensitive' } },
+          });
+          const vDB = await this.prisma.equipo.findFirst({
+            where: { nombre: { contains: a, mode: 'insensitive' } },
+          });
+
+          partidosInput.push({
+            Liga: ligaInfo.nombre,
+            HomeTeam: h,
+            AwayTeam: a,
+            HomeElo: lDB ? lDB.elo : 1500,
+            AwayElo: vDB ? vDB.elo : 1500,
+            Form5Home: lDB ? lDB.form5 : 50,
+            Form5Away: vDB ? vDB.form5 : 50,
+            Form3Home: lDB ? lDB.form3 : 50,
+            Form3Away: vDB ? vDB.form3 : 50,
+          });
+        }
+
+        if (partidosInput.length > 0) {
+          const predicciones = await this.aiEngine.analizarJornada(partidosInput);
+
+          const tier1: any[] = [];
+          const tier2: any[] = [];
+          const tier3: any[] = [];
+
+          for (const pred of predicciones) {
+            if (!pred || !pred.probabilidades_1X2) continue;
+            const p1 = parseFloat((pred.probabilidades_1X2.Victoria_Local || '0').replace('%', ''));
+            const pX = parseFloat((pred.probabilidades_1X2.Empate || '0').replace('%', ''));
+            const p2 = parseFloat((pred.probabilidades_1X2.Victoria_Visitante || '0').replace('%', ''));
+            const maxProb = Math.max(p1, pX, p2);
+            const teams = pred.partido.split(' vs ');
+            const homeTeam = teams[0] || 'Local';
+            const awayTeam = teams[1] || 'Visitante';
+
+            const p1X = parseFloat((pred.doble_oportunidad?.['1X'] || '0').replace('%', ''));
+            const pX2 = parseFloat((pred.doble_oportunidad?.X2 || '0').replace('%', ''));
+            const over25 = parseFloat((pred.mercado_goles?.Over_2_5 || '0').replace('%', ''));
+            const under25 = parseFloat((pred.mercado_goles?.Under_2_5 || '0').replace('%', ''));
+
+            const xgL = pred.xg_esperados?.xg_local ?? 1.4;
+            const xgV = pred.xg_esperados?.xg_visitante ?? 1.1;
+            const xgDiff = Math.abs(xgL - xgV);
+
+            // Tier 2: Seguras (Bases Parlay) -> Favorito con prob >= 65% o Doble Oportunidad >= 85%
+            if (maxProb >= 65 || (p1 >= 50 && p1X >= 85) || (p2 >= 50 && pX2 >= 85)) {
+              const pick = p1 >= p2 ? homeTeam : awayTeam;
+              const seguraType = maxProb >= 65 ? `Victoria Directa (${Math.round(maxProb)}%)` : `Doble Oportunidad (${p1 >= p2 ? '1X' : 'X2'}: ${Math.max(p1X, pX2)}%)`;
+              tier2.push({
+                partido: pred.partido,
+                seleccion: pick,
+                tipo: seguraType,
+                prob: maxProb >= 65 ? Math.round(maxProb) : Math.max(p1X, pX2),
+                xg: `${xgL} vs ${xgV}`,
+              });
+              continue;
+            }
+
+            // Tier 1: Gran Valor (+EV) -> Probabilidad sólida (52% a 64%) con buen diferencial xG
+            if (maxProb >= 52 && xgDiff >= 0.45) {
+              const pick = p1 === maxProb ? `Victoria ${homeTeam}` : (p2 === maxProb ? `Victoria ${awayTeam}` : 'Empate');
+              const alt = over25 >= 60 ? `Over 2.5 Goles (${over25}%)` : (under25 >= 60 ? `Under 2.5 Goles (${under25}%)` : `1X (${p1X}%)`);
+              tier1.push({
+                partido: pred.partido,
+                seleccion: pick,
+                prob: Math.round(maxProb),
+                alternativa: alt,
+                xg: `${xgL} vs ${xgV}`,
+              });
+              continue;
+            }
+
+            // Tier 3: Trampas / A Descartar -> Máxima probabilidad < 45% o xG muy parejo
+            if (maxProb < 45 || (maxProb < 52 && xgDiff < 0.25)) {
+              tier3.push({
+                partido: pred.partido,
+                razon: `Volado 3-vías (${Math.round(p1)}% L / ${Math.round(pX)}% E / ${Math.round(p2)}% V). Riesgo excesivo en línea 1X2.`,
+              });
+            }
+          }
+
+          // 1. GRAN VALOR
+          mensaje += `💎 <b>1. APUESTAS DE GRAN VALOR (+EV)</b>\n` +
+                     `<i>Superioridad táctica y cuota atractiva (mayor rentabilidad):</i>\n\n`;
+          if (tier1.length === 0) {
+            mensaje += `• <i>No hay partidos con ventaja táctica destacada en esta fecha.</i>\n\n`;
+          } else {
+            tier1.forEach((t) => {
+              mensaje += `• <b>${t.partido}</b>\n` +
+                         `  🎯 Selección: <b>${t.seleccion}</b> (Prob: <b>${t.prob}%</b> | xG: ${t.xg})\n` +
+                         `  🛡️ Alternativa: <i>${t.alternativa}</i>\n\n`;
+            });
+          }
+
+          // 2. BASES PARLAY
+          mensaje += `${div}\n` +
+                     `🛡️ <b>2. OPCIONES SEGURAS (BASES PARA PARLAY)</b>\n` +
+                     `<i>Máxima probabilidad pura (>65% o Doble Op >85%) para combinar:</i>\n\n`;
+          if (tier2.length === 0) {
+            mensaje += `• <i>No se detectaron favoritos aplastantes para bases de parlay.</i>\n\n`;
+          } else {
+            tier2.forEach((t) => {
+              mensaje += `• <b>${t.partido}</b>\n` +
+                         `  🎯 Base: <b>${t.seleccion}</b> — ${t.tipo}\n` +
+                         `  📊 Métricas xG: ${t.xg}\n\n`;
+            });
+          }
+
+          // 3. A DESCARTAR
+          mensaje += `${div}\n` +
+                     `⚠️ <b>3. PARTIDOS A DESCARTAR (TRAMPAS / ALTO RIESGO)</b>\n` +
+                     `<i>Enfrentamientos muy parejos o trampas estadísticas:</i>\n\n`;
+          if (tier3.length === 0) {
+            mensaje += `• <i>Sin trampas estadísticas detectadas.</i>\n\n`;
+          } else {
+            tier3.forEach((t) => {
+              mensaje += `• <b>${t.partido}</b>\n` +
+                         `  ⚠️ <i>${t.razon}</i>\n\n`;
+            });
+          }
+        }
+      } else {
+        mensaje += `ℹ️ No hay partidos pendientes programados en las próximas fechas para esta competición.\n`;
+      }
+
+      const navRow: any[] = [];
+      if (ligaKey) {
+        navRow.push(Markup.button.callback(`🔙 Volver a ${ligaInfo.nombre}`, `liga_${ligaKey}`));
+      }
+      navRow.push(Markup.button.callback('⚽ Ligas', 'menu_ligas'));
+      navRow.push(Markup.button.callback('🏠 Menú', 'menu_start_redirect'));
+
+      await ctx.reply(mensaje, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([navRow]),
+      });
+    } catch (error) {
+      this.logger.error('Error procesando estrategia liga', error);
+      await ctx.reply('❌ Error al procesar la estrategia del torneo.');
     }
   }
 
@@ -1154,18 +1853,18 @@ export class ApuestasCronService {
     const ligaInfo = this.resolverLigaKey(query);
 
     try {
-      const fechas = this.getRangoFechasDinamico();
+      const fechas = this.getRangoFechasDinamico(20, 0);
       await ctx.reply(
-        `⚽ Consultando marcadores de la jornada (${fechas.desde} al ${fechas.hasta})...`,
+        `⚽ Consultando marcadores finalizados (${fechas.desde} al ${fechas.hasta})...`,
       );
 
-      let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta);
+      let partidos = await this.sportsApi.obtenerPartidosDelDia(fechas.desde, fechas.hasta, ligaInfo ? ligaInfo.id : undefined);
       if (!partidos || partidos.length === 0) {
-        partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta);
+        partidos = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta, ligaInfo ? ligaInfo.id : undefined);
       }
 
       let partidosFiltrados = (partidos || []).filter((p: any) =>
-        this.targetLeagueKeys.includes(parseInt(p?.league_key)),
+        this.targetLeagueKeys.includes(parseInt(p?.league_key)) && !this.esPartidoPendiente(p),
       );
 
       if (ligaInfo) {
@@ -1175,16 +1874,37 @@ export class ApuestasCronService {
       }
 
       if (partidosFiltrados.length === 0) {
-        return ctx.reply('ℹ️ No se encontraron marcadores para ese filtro.');
+        return ctx.reply('ℹ️ No se encontraron marcadores finalizados recientes para ese filtro.', {
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.callback('⚽ Menú Fútbol', 'menu_ligas'),
+              Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect'),
+            ],
+          ]),
+        });
       }
+
+      partidosFiltrados.sort((a: any, b: any) => {
+        const tA = new Date(a.event_date + 'T' + (a.event_time || '00:00')).getTime();
+        const tB = new Date(b.event_date + 'T' + (b.event_time || '00:00')).getTime();
+        return tB - tA;
+      });
 
       let mensaje = `📋 <b>MARCADORES FINALES DE LA JORNADA</b> 📋\n\n`;
       partidosFiltrados.slice(0, 10).forEach((p: any) => {
-        const res = p?.event_final_result || 'Pendiente';
+        const res = p?.event_final_result || 'Finalizado';
         mensaje += `🏆 <b>${p?.league_name || 'Liga'}</b>\n⚽ <b>${p?.event_home_team || 'Local'} ${res} ${p?.event_away_team || 'Visitante'}</b>\n📅 ${p?.event_date || ''}\n\n`;
       });
 
-      await ctx.reply(mensaje, { parse_mode: 'HTML' });
+      await ctx.reply(mensaje, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('⚽ Menú Fútbol', 'menu_ligas'),
+            Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect'),
+          ],
+        ]),
+      });
     } catch (error) {
       this.logger.error('Error en /resultados', error);
       await ctx.reply('❌ Error al obtener los resultados.');
@@ -1195,9 +1915,9 @@ export class ApuestasCronService {
   @Command('test')
   @Command('pasado')
   async comandoJornadaAcotada(@Ctx() ctx: Context) {
-    const fechas = this.getRangoFechasDinamico();
+    const fechas = this.getRangoFechasDinamico(0, 15);
     await ctx.reply(
-      `🔍 Analizando la jornada cuantitativa en vivo (${fechas.desde} al ${fechas.hasta})...`,
+      `🔍 Analizando la jornada cuantitativa de próximos encuentros (${fechas.desde} al ${fechas.hasta})...`,
     );
     await this.ejecutarAnalisisJornadaLimitado(fechas.desde, fechas.hasta, ctx);
   }
@@ -1212,7 +1932,15 @@ export class ApuestasCronService {
         `🔹 Alertas Registradas en BD: <b>${totalAlertas}</b>\n` +
         `⚙️ Algoritmo: <b>Calibrated Random Forest + Dixon-Coles Poisson (13 Torneos Top)</b>`;
 
-      await ctx.reply(mensaje, { parse_mode: 'HTML' });
+      await ctx.reply(mensaje, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('⚽ Menú Fútbol', 'menu_ligas'),
+            Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect'),
+          ],
+        ]),
+      });
     } catch (error) {
       this.logger.error('Error en comando /stats', error);
       await ctx.reply('❌ Error al obtener estadísticas.');
@@ -1222,7 +1950,7 @@ export class ApuestasCronService {
   @Cron('0 9 * * *')
   async cronJornadaDiaria() {
     this.logger.log('Cronjob diario activado...');
-    const fechas = this.getRangoFechasDinamico();
+    const fechas = this.getRangoFechasDinamico(0, 15);
     await this.ejecutarAnalisisJornadaLimitado(fechas.desde, fechas.hasta);
   }
 
@@ -1237,18 +1965,43 @@ export class ApuestasCronService {
         hasta,
       );
 
-      if (!partidosReales || partidosReales.length === 0) {
-        partidosReales = await this.sportsApi.obtenerPartidosDelDia(this.fechaPruebaDesde, this.fechaPruebaHasta);
+      // Filtrar partidos de las 13 ligas top que sigan pendientes
+      let partidosOficiales = (partidosReales || []).filter((p: any) =>
+        this.targetLeagueKeys.includes(parseInt(p?.league_key)) && this.esPartidoPendiente(p),
+      );
+
+      // Si no se encontraron en el rango exacto, buscar en los próximos 15 días
+      if (partidosOficiales.length === 0) {
+        const hoy = new Date();
+        const hoyStr = hoy.toISOString().split('T')[0];
+        const fut15 = new Date(hoy);
+        fut15.setDate(hoy.getDate() + 15);
+        const fut15Str = fut15.toISOString().split('T')[0];
+        const aux = await this.sportsApi.obtenerPartidosDelDia(hoyStr, fut15Str);
+        partidosOficiales = (aux || []).filter((p: any) =>
+          this.targetLeagueKeys.includes(parseInt(p?.league_key)) && this.esPartidoPendiente(p),
+        );
       }
 
-      const partidosOficiales = (partidosReales || []).filter((p: any) =>
-        this.targetLeagueKeys.includes(parseInt(p?.league_key)),
-      );
+      // Ordenar cronológicamente (los más cercanos primero)
+      partidosOficiales.sort((a: any, b: any) => {
+        const tA = new Date(a.event_date + 'T' + (a.event_time || '00:00')).getTime();
+        const tB = new Date(b.event_date + 'T' + (b.event_time || '00:00')).getTime();
+        return tA - tB;
+      });
 
       if (!partidosOficiales || partidosOficiales.length === 0) {
         if (ctx)
           await ctx.reply(
-            `ℹ️ No se encontraron partidos oficiales entre ${desde} y ${hasta}.`,
+            `ℹ️ No se encontraron partidos oficiales pendientes en las próximas fechas.`,
+            {
+              ...Markup.inlineKeyboard([
+                [
+                  Markup.button.callback('⚽ Ver Torneos', 'menu_ligas'),
+                  Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect'),
+                ],
+              ]),
+            },
           );
         return;
       }
@@ -1394,12 +2147,28 @@ export class ApuestasCronService {
       }
 
       if (ctx) {
-        await ctx.reply(mensaje, { parse_mode: 'HTML' });
+        await ctx.reply(mensaje, {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.callback('⚽ Ligas de Fútbol', 'menu_ligas'),
+              Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect'),
+            ],
+          ]),
+        });
       } else {
         await this.bot.telegram.sendMessage(
           process.env.TELEGRAM_CHAT_ID!,
           mensaje,
-          { parse_mode: 'HTML' },
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [
+                Markup.button.callback('⚽ Ligas de Fútbol', 'menu_ligas'),
+                Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect'),
+              ],
+            ]),
+          },
         );
       }
     } catch (error) {
