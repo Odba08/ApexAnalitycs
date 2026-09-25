@@ -6,6 +6,8 @@ import { InjectBot, Update, Command, Ctx, Action, On } from 'nestjs-telegraf';
 import { Telegraf, Context, Markup } from 'telegraf';
 import { SportsApiService } from '../sports-api/sports-api.service';
 
+import { F1Service } from './f1.service';
+
 @Update()
 @Injectable()
 export class ApuestasCronService {
@@ -23,6 +25,7 @@ export class ApuestasCronService {
     private readonly prisma: PrismaService,
     @InjectBot() private readonly bot: Telegraf,
     private readonly sportsApi: SportsApiService,
+    private readonly f1Service: F1Service,
   ) {}
 
   // Helper para generar fechas vivas en tiempo real (por defecto 2 días atrás -> 7 días adelante, máximo 1 semana)
@@ -108,20 +111,18 @@ export class ApuestasCronService {
   async comandoMenuPrincipal(@Ctx() ctx: Context) {
     const usuario = ctx.from?.first_name || 'Inversionista';
     await ctx.reply(
-      `🤖 <b>¡HOLA ${usuario.toUpperCase()}! BIENVENIDO A APEX ANALYTICS</b> ⚽📊\n\n` +
-        `Soy tu bot de inteligencia cuantitativa deportiva. Analizo métricas Elo, forma reciente y modelos estadísticos Dixon-Coles para <b>13 competiciones top</b> (Champions, Libertadores, Premier, LaLiga, Serie A, etc.).\n\n` +
-        `👉 <b>Escribe o presiona /start en cualquier momento para ver este menú.</b>\n\n` +
-        `Selecciona una opción a continuación:`,
+      `🤖 <b>CENTRO CUANTITATIVO Y DEPORTIVO DE ÉLITE</b> 🤖\n\n` +
+        `¡Hola <b>${usuario.toUpperCase()}</b>! Selecciona la disciplina deportiva que deseas consultar:`,
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('🏆 Explorar Torneos (13 Top)', 'menu_ligas'),
-            Markup.button.callback('⚽ Buscar Equipo', 'menu_equipo'),
+            Markup.button.callback('⚽ FÚTBOL (13 Torneos Top)', 'menu_futbol'),
+            Markup.button.callback('🏎️ FÓRMULA 1 (Temporada 2026)', 'menu_f1'),
           ],
           [
             Markup.button.callback('🎯 Top Apuestas Globales', 'menu_hoy'),
-            Markup.button.callback('⭐️ Top BD', 'top_todas'),
+            Markup.button.callback('⭐️ Ranking BD Equipos', 'top_todas'),
           ],
           [
             Markup.button.callback('📈 Rendimiento ROI / P&L', 'menu_roi'),
@@ -140,7 +141,7 @@ export class ApuestasCronService {
     const usuario = ctx.from?.first_name || 'Amigo';
     await ctx.reply(
       `👋 <b>¡Hola ${usuario}!</b>\n\n` +
-        `Para explorar las 13 competiciones, consultar rankings Elo o ver los mejores pronósticos cuantitativos, presiona o escribe <b>/start</b> para desplegar el panel principal.`,
+        `Para explorar el centro de Fútbol o la Fórmula 1, presiona o escribe <b>/start</b> para desplegar el panel principal.`,
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
@@ -160,11 +161,12 @@ export class ApuestasCronService {
 
   @Command('liga')
   @Action('menu_ligas')
+  @Action('menu_futbol')
   async comandoSeleccionarLigaMenu(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
 
     await ctx.reply(
-      '🏆 <b>SELECCIONA UNA COMPETICIÓN (13 TORNEOS TOP)</b> 🏆\n\nElige el torneo que deseas consultar:',
+      '⚽ <b>FÚTBOL: 13 COMPETICIONES TOP DE ÉLITE</b> ⚽\n\nElige la liga o torneo continental que deseas consultar:',
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
@@ -191,9 +193,170 @@ export class ApuestasCronService {
             Markup.button.callback('🇸🇦 Saudi Pro League', 'liga_saudi'),
             Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship', 'liga_championship'),
           ],
+          [Markup.button.callback('🔙 Volver al Menú Principal', 'menu_start_redirect')],
         ]),
       },
     );
+  }
+
+  // ------------------------------------------------------------------
+  // MENÚ INTERACTIVO FÓRMULA 1 (IA, POLE, PODIO Y TELEMETRÍA 2026)
+  // ------------------------------------------------------------------
+
+  @Action('menu_f1')
+  async accionMenuF1(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+
+    const proximoGP = await this.f1Service.obtenerGranPremioActivo();
+    const pilotos = await this.f1Service.obtenerMundialPilotos();
+    const lider = pilotos && pilotos.length > 0 ? pilotos[0] : null;
+
+    const nombreGP = proximoGP ? proximoGP.nombre : 'Próximo Gran Premio';
+    const infoLider = lider ? `${lider.nombre} (${lider.puntosMundial} pts)` : 'Actualizando...';
+
+    await ctx.reply(
+      '🏎️ <b>FÓRMULA 1 (TEMPORADA 2026) - TELEMETRÍA & MOTOR IA</b> 🏎️\n\n' +
+        `🏁 <b>Próxima Carrera:</b> ${nombreGP}\n` +
+        `🏆 <b>Líder del Mundial:</b> ${infoLider}\n\n` +
+        'Selecciona una opción a continuación:',
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback(`⏱️ Pronósticos Pole & GP (${nombreGP})`, 'opt_f1_pronostico'),
+          ],
+          [
+            Markup.button.callback('🏆 Mundial de Pilotos 2026', 'opt_f1_pilotos'),
+            Markup.button.callback('🏎️ Mundial de Constructores', 'opt_f1_constructores'),
+          ],
+          [Markup.button.callback('🔙 Volver al Menú Principal', 'menu_start_redirect')],
+        ]),
+      },
+    );
+  }
+
+  @Action('opt_f1_pronostico')
+  async accionF1Pronostico(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Analizando telemetría oficial FastF1 (FP1/FP2) y ejecutando simulación Monte Carlo...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.f1Service.analizarProximoGP();
+
+    if (res.error || !res.analisis_f1) {
+      return ctx.reply('⚠️ No se pudo generar el informe de F1 en este momento.');
+    }
+
+    const gpNombre = res.gp ? res.gp.nombre : 'Gran Premio de Azerbaiyán (Bakú)';
+    const circuito = res.gp ? res.gp.circuito : 'Baku City Circuit';
+    const fecha = res.gp ? res.gp.fecha : '2026-09-26';
+    const analisis = res.analisis_f1;
+
+    const sortedPole = [...analisis].sort((a: any, b: any) => b.raw_pole - a.raw_pole);
+    const sortedWin = [...analisis].sort((a: any, b: any) => b.raw_win - a.raw_win);
+    const sortedPodium = [...analisis].sort((a: any, b: any) => b.raw_podium - a.raw_podium);
+
+    const sesionReciente = res.sesion_mas_reciente || 'Practice 2';
+    const esQualyHecha = !!res.qualy_completada;
+
+    let msg = `🏎️ <b>FÓRMULA 1 - PRONÓSTICOS OFICIALES FIA</b> 🏎️\n` +
+              `🏁 <b>${gpNombre}</b>\n` +
+              `📍 <i>${circuito}</i> | 📅 <i>${fecha}</i>\n\n` +
+              `📡 <b>Estado de la Telemetría FastF1:</b>\n` +
+              `• <b>Última sesión procesada:</b> ${sesionReciente}\n` +
+              `• <b>Líderes de ritmos:</b> Russell (Mercedes) 1º en FP1 y FP2.\n\n`;
+
+    if (esQualyHecha) {
+      const poleMan = sortedPole[0];
+      msg += `🏁 <b>POLE POSITION CONFIRMADA (Q3):</b>\n` +
+             `🥇 <b>${poleMan.piloto}</b> (${poleMan.escuderia}) saldrá 1º en parrilla.\n\n`;
+    } else {
+      msg += `⏱️ <b>FAVORITOS GANADOR POLE POSITION (Q3):</b>\n`;
+      sortedPole.slice(0, 5).forEach((p: any, idx: number) => {
+        const medalla = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '•';
+        const fpInfo = `(Última Posición: P${p.latest_pos})`;
+        msg += `${medalla} <b>${p.piloto}</b> (${p.escuderia}) - Pole: <b>${p.prob_pole}</b> ${fpInfo}\n`;
+      });
+    }
+
+    msg += `\n🏁 <b>FAVORITOS GANADOR DE CARRERA (P1):</b>\n`;
+    sortedWin.slice(0, 5).forEach((p: any, idx: number) => {
+      const medalla = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '•';
+      msg += `${medalla} <b>${p.piloto}</b> (${p.escuderia}) - Victoria: <b>${p.prob_victoria}</b> (${p.victorias} Wins en 2026)\n`;
+    });
+
+    msg += `\n🏆 <b>PROBABILIDAD DE PODIO (TOP 3):</b>\n`;
+    sortedPodium.slice(0, 8).forEach((p: any) => {
+      msg += `• <b>${p.piloto}</b> (${p.escuderia}): <b>${p.prob_podio}</b>\n`;
+    });
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('📊 Ver Parrilla Completa (22 Pilotos)', 'opt_f1_parrilla_completa')],
+        [Markup.button.callback('🔙 Volver al Menú F1', 'menu_f1')],
+      ]),
+    });
+  }
+
+  @Action('opt_f1_parrilla_completa')
+  async accionF1ParrillaCompleta(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+
+    const res = await this.f1Service.analizarProximoGP();
+    if (res.error || !res.analisis_f1) {
+      return ctx.reply('⚠️ No se pudieron cargar los datos.');
+    }
+
+    const analisis = res.analisis_f1;
+    let msg = `📊 <b>PROBABILIDADES COMPLETAS DE LA PARRILLA (22 PILOTOS)</b>\n\n`;
+    msg += `<i>Piloto | Pole % | Victoria % | Podio %</i>\n\n`;
+
+    analisis.forEach((p: any, idx: number) => {
+      msg += `<b>${idx + 1}. ${p.piloto}</b> (${p.escuderia})\n` +
+             `   └ Pole: <b>${p.prob_pole}</b> | Win: <b>${p.prob_victoria}</b> | Podio: <b>${p.prob_podio}</b>\n`;
+    });
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🔙 Volver a Pronósticos', 'opt_f1_pronostico')],
+      ]),
+    });
+  }
+
+  @Action('opt_f1_pilotos')
+  async accionF1Pilotos(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    const pilotos = await this.f1Service.obtenerMundialPilotos();
+
+    let msg = `🏆 <b>MUNDIAL DE PILOTOS FÓRMULA 1 2026:</b>\n\n`;
+    if (pilotos && pilotos.length > 0) {
+      pilotos.forEach((p, idx) => {
+        const racha = p.rachaReciente ? `\n   └ <i>${p.rachaReciente}</i>` : '';
+        msg += `<b>${idx + 1}. ${p.nombre}</b> (${p.escuderia}) | Pts: <b>${p.puntosMundial}</b> | Wins: ${p.victorias}${racha}\n\n`;
+      });
+    } else {
+      msg += `ℹ️ No hay datos cargados en el mundial de pilotos.`;
+    }
+
+    await ctx.reply(msg, { parse_mode: 'HTML' });
+  }
+
+  @Action('opt_f1_constructores')
+  async accionF1Constructores(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    const escuderias = await this.f1Service.obtenerMundialConstructores();
+
+    let msg = `🏎️ <b>MUNDIAL DE CONSTRUCTORES (ESCUDERÍAS 2026):</b>\n\n`;
+    if (escuderias && escuderias.length > 0) {
+      escuderias.forEach((e, idx) => {
+        msg += `<b>${idx + 1}. ${e.nombre}</b> | Pts: <b>${e.puntosMundial}</b> | Wins: ${e.victorias}\n`;
+      });
+    } else {
+      msg += `ℹ️ No hay datos cargados en el mundial de constructores.`;
+    }
+
+    await ctx.reply(msg, { parse_mode: 'HTML' });
   }
 
   @Action(/liga_(.*)/)

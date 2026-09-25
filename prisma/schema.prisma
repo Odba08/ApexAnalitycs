@@ -35,3 +35,44 @@ model AlertaValor {
   
   createdAt           DateTime @default(now())
 }
+
+
+// Catálogo F1: Mantiene los ratings Elo, telemetría y racha de Pilotos
+model PilotoF1 {
+  id                  Int      @id @default(autoincrement())
+  nombre              String   @unique
+  escuderia           String
+  elo                 Float    @default(1500.0)
+  puntosMundial       Float    @default(0.0)
+  victorias           Int      @default(0)
+  poles               Int      @default(0)
+  podios              Int      @default(0)
+  podiosConsecutivos  Int      @default(0)
+  fp1Pos              Int      @default(10)
+  fp2Pos              Int      @default(10)
+  rachaReciente       String   @default("")
+  form5               Float    @default(50.0)
+  updatedAt           DateTime @updatedAt
+}
+
+// Catálogo F1: Mantiene los ratings Elo de las Escuderías (Constructores)
+model EscuderiaF1 {
+  id              Int      @id @default(autoincrement())
+  nombre          String   @unique
+  elo             Float    @default(1500.0)
+  puntosMundial   Float    @default(0.0)
+  victorias       Int      @default(0)
+  updatedAt       DateTime @updatedAt
+}
+
+// Calendario y Circuito de F1 (Gran Premio Activo)
+model GranPremioF1 {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @unique
+  circuito    String
+  fecha       String
+  fase        String   @default("Prácticas Libres FP1/FP2")
+  poleName    String?
+  winnerName  String?
+  updatedAt   DateTime @updatedAt
+}
