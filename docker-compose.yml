@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: apex_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: motor_apuestas
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d motor_apuestas"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ml-engine:
+    build:
+      context: ../MachineLearning
+      dockerfile: Dockerfile
+    container_name: apex_ml_engine
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  bot-nest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: apex_bot
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ml-engine:
+        condition: service_started
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:secret@postgres:5432/motor_apuestas?schema=public}
+      - PYTHON_ML_URL=${PYTHON_ML_URL:-http://ml-engine:8000}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-8754882661:AAGa6HM0jv2LwSKu4TioWWHkj5JntxlTwkI}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-241219082}
+      - ALLSPORTS_API_KEY=${ALLSPORTS_API_KEY:-0ebb3db058dba1b78afd62aa6c4e538a365693bf54f0f82114db285e87aa6bc8}
+      - THE_ODDS_API_KEY=${THE_ODDS_API_KEY:-9c4667b47ad5ae80f5de259e91f8ff0f}
+      - DASHBOARD_URL=${DASHBOARD_URL:-http://localhost:3000/dashboard}
+
+volumes:
+  postgres_data:
+    driver: local
