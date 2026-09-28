@@ -680,7 +680,7 @@ export class ApuestasCronService {
         } else {
           msg += `• <b>${t.peleador}</b> (vs ${t.rival})${t.fecha} ⚠️ <b>ALTO RIESGO / UNDERDOG</b>\n` +
                  `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b> | Edge: <b>+${t.edge}%</b>\n` +
-                 `  <i>Nota: Tiene valor estadístico pero probabilidad baja (<50%). Usar stake mínimo y NO meter en parlays.</i>\n\n`;
+                 `  <i>Nota: Tiene valor estadístico pero probabilidad baja (menor a 50%). Usar stake mínimo y NO meter en parlays.</i>\n\n`;
         }
       });
     }
@@ -728,7 +728,7 @@ export class ApuestasCronService {
               `${div}\n\n`;
 
     if (conValor.length === 0) {
-      msg += `<i>Todas las cuotas actuales están perfectamente equilibradas con el mercado (Edge < +3.0%).</i>\n`;
+      msg += `<i>Todas las cuotas actuales están perfectamente equilibradas con el mercado (ventaja menor a +3.0%).</i>\n`;
     } else {
       conValor.slice(0, 5).forEach((c, idx) => {
         const p = c.props;
@@ -839,15 +839,16 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
 
     const data = await this.ufcService.obtenerCarteleraUFC();
-    if (data.error || !data.analisis_ufc) {
+    if (data.error || !data.analisis_ufc || data.analisis_ufc.length === 0) {
       await ctx.reply('⚠️ No se pudieron obtener los datos de la UFC.');
       return;
     }
 
     const div = '──────────────────────────────';
-    let msg = `<b>CARTELERA COMPLETA DE UFC</b>\n` +
-              `<i>Pronósticos y favoritos para cada combate</i>\n` +
-              `${div}\n\n`;
+    const chunks: string[] = [];
+    let currentMsg = `<b>CARTELERA COMPLETA DE UFC</b>\n` +
+                     `<i>Pronósticos y favoritos para cada combate</i>\n` +
+                     `${div}\n\n`;
 
     data.analisis_ufc.forEach((c, idx) => {
       const p = c.props;
@@ -858,23 +859,41 @@ export class ApuestasCronService {
       const cat = c.weight_class ? ` (${c.weight_class})` : '';
       const fecha = this.formatFechaCorta(c.commence_time);
 
-      msg += `<b>${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter}</b>${fecha}${cat}\n` +
-             `• Favorito: <b>${fav}</b> (${Math.round(favProb)}% | Cuota ${favOdds})${valBadge}\n`;
+      let fightBlock = `<b>${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter}</b>${fecha}${cat}\n` +
+                       `• Favorito: <b>${fav}</b> (${Math.round(favProb)}% | Cuota ${favOdds})${valBadge}\n`;
       if (p) {
-        msg += `• Vías de Victoria: KO/TKO: ${Math.round(p.metodos.ko_tko)}% | Sub: ${Math.round(p.metodos.sumision)}% | Dec: ${Math.round(p.metodos.decision)}%\n` +
-               `• Líneas de Asaltos: +1.5 Asaltos (${Math.round(p.asaltos.over_15)}%) | Prop: <b>${p.jugada_alternativa}</b>\n`;
+        fightBlock += `• Vías de Victoria: KO/TKO: ${Math.round(p.metodos.ko_tko)}% | Sub: ${Math.round(p.metodos.sumision)}% | Dec: ${Math.round(p.metodos.decision)}%\n` +
+                      `• Líneas de Asaltos: +1.5 Asaltos (${Math.round(p.asaltos.over_15)}%) | Prop: <b>${p.jugada_alternativa}</b>\n`;
       }
-      msg += `${div}\n`;
+      fightBlock += `${div}\n`;
+
+      if (currentMsg.length + fightBlock.length > 3400) {
+        chunks.push(currentMsg);
+        currentMsg = `<b>CARTELERA UFC (Continuación)</b>\n${div}\n\n` + fightBlock;
+      } else {
+        currentMsg += fightBlock;
+      }
     });
 
-    await ctx.reply(msg, {
-      parse_mode: 'HTML',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('🎯 Asaltos & Métodos (Props)', 'opt_ufc_props_detail')],
-        [Markup.button.callback('🏆 Ver Solo Apuestas +EV', 'opt_ufc_valor')],
-        [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
-      ]),
-    });
+    if (currentMsg.trim().length > 0) {
+      chunks.push(currentMsg);
+    }
+
+    for (let i = 0; i < chunks.length; i++) {
+      const isLast = i === chunks.length - 1;
+      if (isLast) {
+        await ctx.reply(chunks[i], {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🎯 Asaltos & Métodos (Props)', 'opt_ufc_props_detail')],
+            [Markup.button.callback('🏆 Ver Solo Apuestas +EV', 'opt_ufc_valor')],
+            [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+          ]),
+        });
+      } else {
+        await ctx.reply(chunks[i], { parse_mode: 'HTML' });
+      }
+    }
   }
 
   @Action('opt_ufc_props_detail')
@@ -883,37 +902,56 @@ export class ApuestasCronService {
     await ctx.reply('⏳ <b>Analizando asaltos, sumisiones y KO para toda la cartelera...</b>', { parse_mode: 'HTML' });
 
     const data = await this.ufcService.obtenerCarteleraUFC();
-    if (data.error || !data.analisis_ufc) {
+    if (data.error || !data.analisis_ufc || data.analisis_ufc.length === 0) {
       await ctx.reply('⚠️ No se pudieron obtener los props de la UFC.');
       return;
     }
 
     const div = '──────────────────────────────';
-    let msg = `<b>ANÁLISIS DE ASALTOS Y MÉTODOS (PROPS)</b>\n` +
-              `<i>Estimaciones por categoría de peso y estilo de combate</i>\n` +
-              `${div}\n\n`;
+    const chunks: string[] = [];
+    let currentMsg = `<b>ANÁLISIS DE ASALTOS Y MÉTODOS (PROPS)</b>\n` +
+                     `<i>Estimaciones por categoría de peso y estilo de combate</i>\n` +
+                     `${div}\n\n`;
 
     data.analisis_ufc.forEach((c, idx) => {
       const p = c.props;
       const cat = c.weight_class ? ` (${c.weight_class})` : '';
-      msg += `<b>${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter}</b>${cat}\n`;
+      let block = `<b>${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter}</b>${cat}\n`;
       if (p) {
-        msg += `• <b>Duración:</b> A Tarjetas (<b>${Math.round(p.distancia.va_distancia)}%</b>) | Finaliza antes: ${Math.round(p.distancia.no_distancia)}%\n` +
-               `• <b>Líneas de Asaltos:</b> Over 1.5 (<b>${Math.round(p.asaltos.over_15)}%</b>) | Over 2.5 (<b>${Math.round(p.asaltos.over_25)}%</b>)\n` +
-               `• <b>Vías de Victoria:</b> Decisión ${Math.round(p.metodos.decision)}% | Sumisión ${Math.round(p.metodos.sumision)}% | KO ${Math.round(p.metodos.ko_tko)}%\n` +
-               `• <b>Mejor opción:</b> <b>${p.jugada_alternativa}</b>\n`;
+        block += `• <b>Duración:</b> A Tarjetas (<b>${Math.round(p.distancia.va_distancia)}%</b>) | Finaliza antes: ${Math.round(p.distancia.no_distancia)}%\n` +
+                 `• <b>Líneas de Asaltos:</b> Over 1.5 (<b>${Math.round(p.asaltos.over_15)}%</b>) | Over 2.5 (<b>${Math.round(p.asaltos.over_25)}%</b>)\n` +
+                 `• <b>Vías de Victoria:</b> Decisión ${Math.round(p.metodos.decision)}% | Sumisión ${Math.round(p.metodos.sumision)}% | KO ${Math.round(p.metodos.ko_tko)}%\n` +
+                 `• <b>Mejor opción:</b> <b>${p.jugada_alternativa}</b>\n`;
       }
-      msg += `${div}\n`;
+      block += `${div}\n`;
+
+      if (currentMsg.length + block.length > 3400) {
+        chunks.push(currentMsg);
+        currentMsg = `<b>PROPS UFC (Continuación)</b>\n${div}\n\n` + block;
+      } else {
+        currentMsg += block;
+      }
     });
 
-    await ctx.reply(msg, {
-      parse_mode: 'HTML',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('🏆 Ver Apuestas de Ganador (+EV)', 'opt_ufc_valor')],
-        [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera')],
-        [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
-      ]),
-    });
+    if (currentMsg.trim().length > 0) {
+      chunks.push(currentMsg);
+    }
+
+    for (let i = 0; i < chunks.length; i++) {
+      const isLast = i === chunks.length - 1;
+      if (isLast) {
+        await ctx.reply(chunks[i], {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🏆 Ver Apuestas de Ganador (+EV)', 'opt_ufc_valor')],
+            [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera')],
+            [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+          ]),
+        });
+      } else {
+        await ctx.reply(chunks[i], { parse_mode: 'HTML' });
+      }
+    }
   }
 
   @Action('opt_ufc_stats')
@@ -1084,7 +1122,7 @@ export class ApuestasCronService {
         } else {
           msg += `• <b>${t.pick}</b> (${t.partido})${t.fecha} ⚠️ <b>ALTO RIESGO / UNDERDOG</b>\n` +
                  `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b> | Edge: <b>+${t.edge}%</b>\n` +
-                 `  <i>Nota: Paga bien por ser sorpresa pero tiene probabilidad baja (<50%). No incluir en combinadas.</i>\n\n`;
+                 `  <i>Nota: Paga bien por ser sorpresa pero tiene probabilidad baja (menor a 50%). No incluir en combinadas.</i>\n\n`;
         }
       });
     }
@@ -1362,7 +1400,7 @@ export class ApuestasCronService {
         } else {
           msg += `• <b>${t.pick}</b> (${t.partido})${t.fecha} ⚠️ <b>ALTO RIESGO / UNDERDOG</b>\n` +
                  `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b> | Edge: <b>+${t.edge}%</b>\n` +
-                 `  <i>Nota: Cuota alta con valor (+EV) pero riesgo elevado (<50% prob). No combinar en parlay.</i>\n\n`;
+                 `  <i>Nota: Cuota alta con valor (+EV) pero riesgo elevado (menor a 50% de probabilidad). No combinar en parlay.</i>\n\n`;
         }
       });
     }
@@ -1638,7 +1676,7 @@ export class ApuestasCronService {
         } else {
           msg += `• <b>${t.pick}</b> (${t.partido})${t.fecha} ⚠️ <b>ALTO RIESGO / UNDERDOG</b>\n` +
                  `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b> | Edge: <b>+${t.edge}%</b>\n` +
-                 `  <i>Nota: Cuota alta con valor (+EV) pero riesgo elevado (<50% prob). No combinar en parlay.</i>\n\n`;
+                 `  <i>Nota: Cuota alta con valor (+EV) pero riesgo elevado (menor a 50% de probabilidad). No combinar en parlay.</i>\n\n`;
         }
       });
     }

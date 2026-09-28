@@ -163,7 +163,7 @@ export class UsSportsService {
       const aiRes = await axios.post(
         `${this.pythonUrl}/analizar-us-sports`,
         { sport: deporte, games: payloadJuegos },
-        { timeout: 20000 },
+        { timeout: 35000 },
       );
 
       const resultado: AnalisisUSResponse = {
