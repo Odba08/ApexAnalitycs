@@ -34,6 +34,16 @@ export class AppController {
     };
   }
 
+  @Get('health')
+  getHealth() {
+    return {
+      status: 'ok',
+      service: 'Apex Analytics Bot',
+      uptime_seconds: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   @Get('dashboard')
   @Header('Content-Type', 'text/html')
   async getDashboard(): Promise<string> {

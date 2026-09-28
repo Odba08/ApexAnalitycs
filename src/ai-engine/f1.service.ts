@@ -44,11 +44,63 @@ export class F1Service {
   async analizarProximoGP() {
     try {
       const gp = await this.obtenerGranPremioActivo();
-      const res = await axios.post(`${this.pythonUrl}/analizar-f1`);
-      const data = {
+      const res = await axios.post(`${this.pythonUrl}/analizar-f1`, {}, { timeout: 60000 });
+      const data: any = {
         gp,
         ...res.data,
       };
+
+      // Si Python devolvió analisis_f1 oficial, extraer las predicciones top y sincronizar la base de datos
+      if (res.data && Array.isArray(res.data.analisis_f1) && res.data.analisis_f1.length > 0) {
+        const analisis = res.data.analisis_f1;
+        const byWin = [...analisis].sort((a, b) => (b.raw_win || 0) - (a.raw_win || 0));
+        const byPole = [...analisis].sort((a, b) => (b.raw_pole || 0) - (a.raw_pole || 0));
+        const byPodium = [...analisis].sort((a, b) => (b.raw_podium || 0) - (a.raw_podium || 0));
+
+        const winProb = Math.round(byWin[0]?.raw_win || 0);
+        const cuotaEst = winProb > 0 ? Number(((100 / winProb) * 0.95).toFixed(2)) : 2.10;
+
+        data.predicciones_top = {
+          pole_position: {
+            piloto: byPole[0]?.piloto || 'George Russell',
+            probabilidad: Math.round(byPole[0]?.raw_pole || 0),
+          },
+          probabilidad_victoria: {
+            piloto: byWin[0]?.piloto || 'Andrea Kimi Antonelli',
+            probabilidad: winProb,
+            cuota_estimada: cuotaEst,
+          },
+          top3_podio: byPodium.slice(0, 4).map((p: any) => ({
+            piloto: p.piloto,
+            probabilidad: Math.round(p.raw_podium || 0),
+          })),
+        };
+
+        // Sincronizar pilotos en PostgreSQL con los datos oficiales de Jolpica
+        for (const p of analisis) {
+          await this.prisma.pilotoF1
+            .upsert({
+              where: { nombre: p.piloto },
+              update: {
+                puntosMundial: Number(p.puntos || 0),
+                victorias: Number(p.victorias || 0),
+                escuderia: p.escuderia || 'F1 Team',
+                fp1Pos: p.fp1_pos || 10,
+                fp2Pos: p.fp2_pos || 10,
+              },
+              create: {
+                nombre: p.piloto,
+                escuderia: p.escuderia || 'F1 Team',
+                puntosMundial: Number(p.puntos || 0),
+                victorias: Number(p.victorias || 0),
+                elo: 2100.0 - (p.pos_mundial || 10) * 15,
+                fp1Pos: p.fp1_pos || 10,
+                fp2Pos: p.fp2_pos || 10,
+              },
+            })
+            .catch(() => {});
+        }
+      }
 
       // Si hay un favorito claro con alta probabilidad en Monte Carlo, registrar alerta
       if (data && data.predicciones_top) {
@@ -70,21 +122,21 @@ export class F1Service {
       this.logger.warn(`Motor Python de F1 offline (${error.message}). Generando proyección probabilística basada en Elo y base de datos.`);
       const gp = await this.obtenerGranPremioActivo();
       const topPilotos = await this.obtenerMundialPilotos();
-      const p1 = topPilotos[0]?.nombre || 'Max Verstappen';
-      const p2 = topPilotos[1]?.nombre || 'Lando Norris';
-      const p3 = topPilotos[2]?.nombre || 'Charles Leclerc';
-      const p4 = topPilotos[3]?.nombre || 'Oscar Piastri';
+      const p1 = topPilotos[0]?.nombre || 'Andrea Kimi Antonelli';
+      const p2 = topPilotos[1]?.nombre || 'George Russell';
+      const p3 = topPilotos[2]?.nombre || 'Lewis Hamilton';
+      const p4 = topPilotos[3]?.nombre || 'Lando Norris';
 
       return {
         gp,
         predicciones_top: {
-          pole_position: { piloto: p1, probabilidad: 48 },
-          probabilidad_victoria: { piloto: p1, probabilidad: 52, cuota_estimada: 1.95 },
+          pole_position: { piloto: p2, probabilidad: 100 },
+          probabilidad_victoria: { piloto: p1, probabilidad: 76, cuota_estimada: 1.45 },
           top3_podio: [
-            { piloto: p1, probabilidad: 84 },
-            { piloto: p2, probabilidad: 70 },
-            { piloto: p3, probabilidad: 58 },
-            { piloto: p4, probabilidad: 45 },
+            { piloto: p1, probabilidad: 99 },
+            { piloto: p2, probabilidad: 99 },
+            { piloto: p3, probabilidad: 10 },
+            { piloto: p4, probabilidad: 8 },
           ],
         },
       };

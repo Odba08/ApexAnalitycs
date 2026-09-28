@@ -45,14 +45,14 @@ async function main() {
   // 2. ESCUDERÍAS F1
   console.log('🏎️ 2. Poblando Escuderías de F1...');
   const escuderias = [
-    { nombre: 'McLaren', elo: 2120.0, puntosMundial: 510.0, victorias: 8 },
-    { nombre: 'Red Bull Racing', elo: 2100.0, puntosMundial: 480.0, victorias: 7 },
-    { nombre: 'Ferrari', elo: 2050.0, puntosMundial: 420.0, victorias: 3 },
-    { nombre: 'Mercedes', elo: 2010.0, puntosMundial: 370.0, victorias: 3 },
-    { nombre: 'Aston Martin', elo: 1820.0, puntosMundial: 120.0, victorias: 0 },
-    { nombre: 'Alpine', elo: 1780.0, puntosMundial: 75.0, victorias: 0 },
-    { nombre: 'Williams', elo: 1740.0, puntosMundial: 45.0, victorias: 0 },
-    { nombre: 'Haas', elo: 1720.0, puntosMundial: 38.0, victorias: 0 },
+    { nombre: 'Mercedes', elo: 2150.0, puntosMundial: 538.0, victorias: 11 },
+    { nombre: 'Ferrari', elo: 2040.0, puntosMundial: 378.0, victorias: 2 },
+    { nombre: 'McLaren', elo: 2010.0, puntosMundial: 306.0, victorias: 2 },
+    { nombre: 'Red Bull Racing', elo: 1980.0, puntosMundial: 249.0, victorias: 0 },
+    { nombre: 'Alpine', elo: 1800.0, puntosMundial: 41.0, victorias: 0 },
+    { nombre: 'Haas', elo: 1750.0, puntosMundial: 27.0, victorias: 0 },
+    { nombre: 'Williams', elo: 1730.0, puntosMundial: 12.0, victorias: 0 },
+    { nombre: 'Aston Martin', elo: 1700.0, puntosMundial: 3.0, victorias: 0 },
   ];
 
   for (const esc of escuderias) {
@@ -64,17 +64,17 @@ async function main() {
   }
   console.log(`   ✅ ${escuderias.length} escuderías de F1 registradas.\n`);
 
-  // 3. PILOTOS F1
-  console.log('🏎️ 3. Poblando Pilotos de F1...');
+  // 3. PILOTOS F1 (Oficial Jolpica 2026)
+  console.log('🏎️ 3. Poblando Pilotos de F1 (Oficial 2026)...');
   const pilotos = [
-    { nombre: 'Max Verstappen', escuderia: 'Red Bull Racing', elo: 2130.0, puntosMundial: 295.0, victorias: 7, poles: 6, podios: 12, podiosConsecutivos: 4, fp1Pos: 2, fp2Pos: 1, rachaReciente: 'Líder de victorias 2026', form5: 94.0 },
-    { nombre: 'Lando Norris', escuderia: 'McLaren', elo: 2140.0, puntosMundial: 288.0, victorias: 5, poles: 7, podios: 11, podiosConsecutivos: 3, fp1Pos: 1, fp2Pos: 2, rachaReciente: '3 Poles consecutivas', form5: 96.0 },
-    { nombre: 'Charles Leclerc', escuderia: 'Ferrari', elo: 2050.0, puntosMundial: 230.0, victorias: 2, poles: 4, podios: 8, podiosConsecutivos: 2, fp1Pos: 3, fp2Pos: 4, rachaReciente: 'Victoria en Monza', form5: 88.0 },
-    { nombre: 'Oscar Piastri', escuderia: 'McLaren', elo: 2020.0, puntosMundial: 215.0, victorias: 2, poles: 2, podios: 7, podiosConsecutivos: 1, fp1Pos: 4, fp2Pos: 3, rachaReciente: 'Podio en últimas 2 carreras', form5: 86.0 },
-    { nombre: 'George Russell', escuderia: 'Mercedes', elo: 2010.0, puntosMundial: 185.0, victorias: 2, poles: 2, podios: 6, podiosConsecutivos: 1, fp1Pos: 5, fp2Pos: 5, rachaReciente: '1º en Libres de Bakú', form5: 85.0 },
-    { nombre: 'Lewis Hamilton', escuderia: 'Ferrari', elo: 2000.0, puntosMundial: 190.0, victorias: 1, poles: 1, podios: 5, podiosConsecutivos: 0, fp1Pos: 7, fp2Pos: 7, rachaReciente: 'Top 5 en Zandvoort', form5: 80.0 },
-    { nombre: 'Carlos Sainz', escuderia: 'Williams', elo: 1980.0, puntosMundial: 175.0, victorias: 1, poles: 1, podios: 5, podiosConsecutivos: 0, fp1Pos: 6, fp2Pos: 6, rachaReciente: 'Regularidad en Top 6', form5: 82.0 },
-    { nombre: 'Fernando Alonso', escuderia: 'Aston Martin', elo: 1850.0, puntosMundial: 78.0, victorias: 0, poles: 0, podios: 2, podiosConsecutivos: 0, fp1Pos: 8, fp2Pos: 8, rachaReciente: 'En puntos constantemente', form5: 74.0 },
+    { nombre: 'Andrea Kimi Antonelli', escuderia: 'Mercedes', elo: 2150.0, puntosMundial: 302.0, victorias: 8, poles: 5, podios: 13, podiosConsecutivos: 5, fp1Pos: 5, fp2Pos: 2, rachaReciente: 'Líder del Mundial 2026 | 8 Victorias', form5: 98.0 },
+    { nombre: 'George Russell', escuderia: 'Mercedes', elo: 2100.0, puntosMundial: 236.0, victorias: 3, poles: 4, podios: 9, podiosConsecutivos: 2, fp1Pos: 1, fp2Pos: 1, rachaReciente: 'Pole Position en Bakú', form5: 94.0 },
+    { nombre: 'Lewis Hamilton', escuderia: 'Ferrari', elo: 2040.0, puntosMundial: 199.0, victorias: 1, poles: 2, podios: 7, podiosConsecutivos: 1, fp1Pos: 4, fp2Pos: 5, rachaReciente: '3º en el Mundial', form5: 86.0 },
+    { nombre: 'Lando Norris', escuderia: 'McLaren', elo: 2020.0, puntosMundial: 186.0, victorias: 2, poles: 3, podios: 6, podiosConsecutivos: 0, fp1Pos: 2, fp2Pos: 3, rachaReciente: 'En batalla por el Top 3', form5: 84.0 },
+    { nombre: 'Charles Leclerc', escuderia: 'Ferrari', elo: 2000.0, puntosMundial: 179.0, victorias: 1, poles: 2, podios: 5, podiosConsecutivos: 0, fp1Pos: 3, fp2Pos: 4, rachaReciente: 'Top 5 en el Mundial', form5: 82.0 },
+    { nombre: 'Max Verstappen', escuderia: 'Red Bull Racing', elo: 1980.0, puntosMundial: 163.0, victorias: 0, poles: 1, podios: 4, podiosConsecutivos: 0, fp1Pos: 6, fp2Pos: 6, rachaReciente: 'Temporada compleja con Red Bull (6º)', form5: 75.0 },
+    { nombre: 'Oscar Piastri', escuderia: 'McLaren', elo: 1920.0, puntosMundial: 120.0, victorias: 0, poles: 0, podios: 2, podiosConsecutivos: 0, fp1Pos: 7, fp2Pos: 7, rachaReciente: '7º en el Mundial', form5: 72.0 },
+    { nombre: 'Pierre Gasly', escuderia: 'Alpine', elo: 1800.0, puntosMundial: 41.0, victorias: 0, poles: 0, podios: 1, podiosConsecutivos: 0, fp1Pos: 8, fp2Pos: 8, rachaReciente: 'Líder de la zona media', form5: 68.0 },
   ];
 
   for (const pil of pilotos) {
@@ -213,9 +213,9 @@ async function main() {
     { deporte: 'UFC', partido: 'John Castaneda vs Heili Alateng', liga: 'UFC Bantamweight', mercadoRecomendado: 'Heili Alateng', cuotaCasa: 3.94, probabilidadIA: 41.0, ventajaPorcentaje: 61.5, stakeRecomendado: 1.0, estado: 'PERDIDA' },
 
     // F1
-    { deporte: 'F1', partido: 'Gran Premio de Azerbaiyán (Bakú)', liga: 'Formula 1', mercadoRecomendado: 'Max Verstappen (Victoria)', cuotaCasa: 1.95, probabilidadIA: 54.0, ventajaPorcentaje: 5.3, stakeRecomendado: 1.0, estado: 'PENDIENTE' },
-    { deporte: 'F1', partido: 'Gran Premio de Azerbaiyán (Bakú)', liga: 'Formula 1', mercadoRecomendado: 'Lando Norris (Podio Top 3)', cuotaCasa: 1.65, probabilidadIA: 68.0, ventajaPorcentaje: 12.2, stakeRecomendado: 1.0, estado: 'PENDIENTE' },
-    { deporte: 'F1', partido: 'Gran Premio de Azerbaiyán (Bakú)', liga: 'Formula 1', mercadoRecomendado: 'Charles Leclerc (Podio Top 3)', cuotaCasa: 1.85, probabilidadIA: 58.0, ventajaPorcentaje: 7.3, stakeRecomendado: 1.0, estado: 'PENDIENTE' },
+    { deporte: 'F1', partido: 'Gran Premio de Azerbaiyán (Bakú)', liga: 'Formula 1', mercadoRecomendado: 'Andrea Kimi Antonelli (Victoria)', cuotaCasa: 1.85, probabilidadIA: 76.0, ventajaPorcentaje: 40.6, stakeRecomendado: 1.0, estado: 'PENDIENTE' },
+    { deporte: 'F1', partido: 'Gran Premio de Azerbaiyán (Bakú)', liga: 'Formula 1', mercadoRecomendado: 'George Russell (Pole Position)', cuotaCasa: 1.50, probabilidadIA: 100.0, ventajaPorcentaje: 50.0, stakeRecomendado: 1.0, estado: 'PENDIENTE' },
+    { deporte: 'F1', partido: 'Gran Premio de Azerbaiyán (Bakú)', liga: 'Formula 1', mercadoRecomendado: 'George Russell (Podio Top 3)', cuotaCasa: 1.40, probabilidadIA: 99.0, ventajaPorcentaje: 38.6, stakeRecomendado: 1.0, estado: 'PENDIENTE' },
   ];
 
   for (const alt of alertas) {

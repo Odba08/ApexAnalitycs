@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { InjectBot, Update, Command, Ctx, Action, On } from 'nestjs-telegraf';
 import { Telegraf, Context, Markup } from 'telegraf';
 import { SportsApiService } from '../sports-api/sports-api.service';
+import axios from 'axios';
 
 import { F1Service } from './f1.service';
 import { UfcService } from './ufc.service';
@@ -29,6 +30,21 @@ export class ApuestasCronService {
     private readonly f1Service: F1Service,
     private readonly ufcService: UfcService,
   ) {}
+
+  // Cronjob cada 10 minutos para mantener el servicio activo en Render
+  @Cron('*/10 * * * *')
+  async keepAlivePing() {
+    const rawUrl = process.env.DASHBOARD_URL || process.env.RENDER_EXTERNAL_URL;
+    if (rawUrl && rawUrl.startsWith('https://')) {
+      try {
+        const pingUrl = rawUrl.replace(/\/dashboard$/, '') + '/health';
+        await axios.get(pingUrl, { timeout: 10000 });
+        this.logger.log(`Keep-alive ping exitoso a ${pingUrl}`);
+      } catch (e) {
+        this.logger.warn(`Keep-alive ping intento: ${e.message}`);
+      }
+    }
+  }
 
   // Helper para generar fechas vivas en tiempo real (por defecto 2 días atrás -> 7 días adelante, máximo 1 semana)
   private getRangoFechasDinamico(
