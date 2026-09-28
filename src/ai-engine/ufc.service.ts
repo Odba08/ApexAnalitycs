@@ -146,7 +146,7 @@ export class UfcService {
         if (!e.commence_time) return false;
         const t = new Date(e.commence_time).getTime();
         const diffHoras = (t - ahora) / (1000 * 3600);
-        return (diffHoras >= -6 && diffHoras <= 96) || e.commence_time.includes('2026-09-26') || e.commence_time.includes('2026-09-27');
+        return diffHoras >= -6 && diffHoras <= 168;
       });
 
       const listaAProcesar = eventosActivos.length > 0 ? eventosActivos : events;
