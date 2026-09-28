@@ -50,6 +50,7 @@ export interface CombateUFC {
   value_edge?: number;
   has_value: boolean;
   props?: PropsUFC;
+  commence_time?: string;
 }
 
 export interface PrediccionUFCResponse {
@@ -127,6 +128,7 @@ export class UfcService {
           value_edge: c.value_edge,
           has_value: c.has_value,
           props: c.props,
+          commence_time: c.commence_time,
         }));
 
         for (const c of combatesMapped) {
