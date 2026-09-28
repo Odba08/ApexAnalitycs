@@ -120,8 +120,8 @@ export class UsSportsService {
 
       const payloadJuegos: any[] = [];
       for (const e of events.slice(0, 25)) {
-        let bestHome = 1.90;
-        let bestAway = 1.90;
+        let bestHome = 0;
+        let bestAway = 0;
         let spread = 0;
         let total = 0;
 
@@ -134,8 +134,8 @@ export class UsSportsService {
             if (h2h && h2h.outcomes) {
               const oHome = h2h.outcomes.find((o: any) => o.name === e.home_team);
               const oAway = h2h.outcomes.find((o: any) => o.name === e.away_team);
-              if (oHome && oHome.price > bestHome) bestHome = oHome.price;
-              if (oAway && oAway.price > bestAway) bestAway = oAway.price;
+              if (oHome && (bestHome === 0 || oHome.price > bestHome)) bestHome = oHome.price;
+              if (oAway && (bestAway === 0 || oAway.price > bestAway)) bestAway = oAway.price;
             }
             if (spr && spread === 0) {
               const oHome = spr.outcomes?.find((o: any) => o.name === e.home_team);
@@ -147,6 +147,9 @@ export class UsSportsService {
             }
           }
         }
+
+        if (bestHome === 0) bestHome = 1.90;
+        if (bestAway === 0) bestAway = 1.90;
 
         payloadJuegos.push({
           home_team: e.home_team,

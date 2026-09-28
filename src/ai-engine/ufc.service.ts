@@ -210,8 +210,8 @@ export class UfcService {
       // Extraer mejores cuotas por combate
       const peleasPayload: any[] = [];
       for (const e of listaAProcesar) {
-        let bestHome = 1.90;
-        let bestAway = 1.90;
+        let bestHome = 0;
+        let bestAway = 0;
 
         if (e.bookmakers && e.bookmakers.length > 0) {
           for (const bm of e.bookmakers) {
@@ -219,11 +219,14 @@ export class UfcService {
             if (h2h && h2h.outcomes) {
               const oHome = h2h.outcomes.find((o: any) => o.name.toLowerCase() === e.home_team.toLowerCase());
               const oAway = h2h.outcomes.find((o: any) => o.name.toLowerCase() === e.away_team.toLowerCase());
-              if (oHome && oHome.price > bestHome) bestHome = oHome.price;
-              if (oAway && oAway.price > bestAway) bestAway = oAway.price;
+              if (oHome && (bestHome === 0 || oHome.price > bestHome)) bestHome = oHome.price;
+              if (oAway && (bestAway === 0 || oAway.price > bestAway)) bestAway = oAway.price;
             }
           }
         }
+
+        if (bestHome === 0) bestHome = 1.90;
+        if (bestAway === 0) bestAway = 1.90;
 
         peleasPayload.push({
           home_team: e.home_team,

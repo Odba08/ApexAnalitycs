@@ -541,7 +541,7 @@ export class ApuestasCronService {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('🧠 Estrategia (Valor, Parlay & Descarte)', 'opt_ufc_estrategia'),
+            Markup.button.callback('📊 Estrategia (Recomendadas & Descartes)', 'opt_ufc_estrategia'),
           ],
           [
             Markup.button.callback('🏆 Apuestas con Valor (+EV)', 'opt_ufc_valor'),
@@ -564,7 +564,7 @@ export class ApuestasCronService {
   @Action('opt_ufc_estrategia')
   async accionUFCEstrategia(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('⏳ <b>Generando matriz estratégica inteligente (Valor, Parlays y Descartes)...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('⏳ <b>Generando matriz estratégica cuantitativa UFC...</b>', { parse_mode: 'HTML' });
 
     const data = await this.ufcService.obtenerCarteleraUFC();
     if (data.error || !data.analisis_ufc || data.analisis_ufc.length === 0) {
@@ -574,7 +574,6 @@ export class ApuestasCronService {
 
     const combates = data.analisis_ufc;
     const tier1Bases: any[] = [];
-    const tier2Valor: any[] = [];
     const tier3Descartes: any[] = [];
 
     for (const c of combates) {
@@ -586,7 +585,7 @@ export class ApuestasCronService {
       const probDiff = Math.abs(c.prob_red - c.prob_blue);
       const fechaStr = this.formatFechaCorta(c.commence_time);
 
-      // 1. BASES PARA PARLAY & RECOMENDADAS (Probabilidad sólida >= 58% sin castigar cuota)
+      // 1. BASES PARA PARLAY & RECOMENDADAS (Probabilidad sólida >= 58%)
       if (favProb >= 58) {
         tier1Bases.push({
           peleador: favName,
@@ -598,56 +597,41 @@ export class ApuestasCronService {
         });
       }
 
-      // 2. APUESTAS CON VALOR (+EV)
-      if (c.has_value && c.value_pick) {
-        const esUnderdog = (c.value_prob || 0) < 50;
-        tier2Valor.push({
-          peleador: c.value_pick,
-          rival: c.value_pick === c.red_fighter ? c.blue_fighter : c.red_fighter,
-          cuota: c.value_odds || 1.80,
-          prob: Math.round(c.value_prob || 0),
-          edge: c.value_edge || 0,
-          esUnderdog,
-          fecha: fechaStr,
-        });
-      }
-
-      // 3. A DEJAR POR FUERA / DESCARTES
+      // 2. A DEJAR POR FUERA / DESCARTES
       if (probDiff <= 8) {
         tier3Descartes.push({
           pelea: `${c.red_fighter} vs ${c.blue_fighter}`,
-          razon: `Moneda al aire (${Math.round(c.prob_red)}% vs ${Math.round(c.prob_blue)}%). Pelea sumamente cerrada, descartar moneyline directo.`,
+          razon: `Paridad extrema (${Math.round(c.prob_red)}% vs ${Math.round(c.prob_blue)}%). Pelea sumamente cerrada, descartar Moneyline directo.`,
           fecha: fechaStr,
         });
       } else if (!c.has_value && favProb < 56 && favOdds <= 1.75) {
         tier3Descartes.push({
           pelea: `${c.red_fighter} vs ${c.blue_fighter}`,
-          razon: `Falso favorito (${favName} @ ${favOdds}). Cuota muy baja para una probabilidad de solo ${Math.round(favProb)}%.`,
+          razon: `Falso favorito (${favName} @ ${favOdds}). Cuota muy castigada para una probabilidad de solo ${Math.round(favProb)}%.`,
           fecha: fechaStr,
         });
       }
     }
 
-    // Ordenar Tier 1 por probabilidad descendente
     tier1Bases.sort((a, b) => b.prob - a.prob);
 
     const div = '──────────────────────────────';
-    let msg = `🧠 <b>ESTRATEGIA INTELIGENTE UFC (3 NIVELES)</b>\n` +
-              `<i>Filtrado cuantitativo para armar tus jugadas del evento</i>\n` +
+    let msg = `🥊 <b>ESTRATEGIA CUANTITATIVA APEX | UFC</b>\n` +
+              `<i>Matriz de selección táctica y gestión de riesgo</i>\n` +
               `${div}\n\n`;
 
     // SECCIÓN 1: RECOMENDADAS / BASES PARLAY
-    msg += `🛡️ <b>1. RECOMENDADAS & BASES PARA PARLAY</b>\n` +
-           `<i>Favoritos sólidos con probabilidad alta (>= 58%) para apuestas directas o combinar:</i>\n\n`;
+    msg += `<b>1. SELECCIONES RECOMENDADAS & BASES DE PARLAY</b>\n` +
+           `<i>Favoritos sólidos con probabilidad estadística favorable (≥ 58%):</i>\n\n`;
 
     if (tier1Bases.length === 0) {
-      msg += `• <i>No se detectaron favoritos aplastantes >= 58% en este evento.</i>\n\n`;
+      msg += `• <i>No se detectaron favoritos con ventaja estadística concluyente (≥ 58%) en este evento.</i>\n\n`;
     } else {
       tier1Bases.slice(0, 4).forEach((t) => {
         msg += `• <b>${t.peleador}</b> (vs ${t.rival})${t.fecha}\n` +
-               `  Cuota: <b>${t.cuota}</b> | Probabilidad IA: <b>${t.prob}%</b>\n`;
+               `  Cuota: <b>${t.cuota}</b> | Probabilidad Modelo: <b>${t.prob}%</b>\n`;
         if (t.prop) {
-          msg += `  🎯 <i>Prop sugerida: ${t.prop}</i>\n`;
+          msg += `  Prop sugerida: <i>${t.prop}</i>\n`;
         }
         msg += `\n`;
       });
@@ -658,53 +642,33 @@ export class ApuestasCronService {
         const p2 = tier1Bases[1];
         const cuotaCombinada = (p1.cuota * p2.cuota).toFixed(2);
         const probEstimada = Math.round((p1.prob * p2.prob) / 100);
-        msg += `🔗 <b>PARLAY SUGERIDO APEX (2 SELECCIONES):</b>\n` +
-               `  1️⃣ ${p1.peleador} @ ${p1.cuota}\n` +
-               `  2️⃣ ${p2.peleador} @ ${p2.cuota}\n` +
-               `  🔥 <b>Cuota combinada: ${cuotaCombinada}</b> (Confianza: ~${probEstimada}%)\n\n`;
+        msg += `<b>PARLAY SUGERIDO (2 SELECCIONES):</b>\n` +
+               `  Leg 1: <b>${p1.peleador}</b> @ ${p1.cuota}\n` +
+               `  Leg 2: <b>${p2.peleador}</b> @ ${p2.cuota}\n` +
+               `  <b>Cuota combinada: ${cuotaCombinada}</b> (Confianza estimada: ~${probEstimada}%)\n\n`;
       }
     }
 
-    // SECCIÓN 2: APUESTAS CON VALOR (+EV) CON ADVERTENCIA EXPLÍCITA
+    // SECCIÓN 2: DESCARTES Y RIESGO ALTO
     msg += `${div}\n` +
-           `💎 <b>2. APUESTAS CON VALOR (+EV)</b>\n` +
-           `<i>La cuota paga por encima de la probabilidad estadística:</i>\n\n`;
-
-    if (tier2Valor.length === 0) {
-      msg += `• <i>No se detectaron cuotas desajustadas con ventaja matemática >= +3.0%.</i>\n\n`;
-    } else {
-      tier2Valor.slice(0, 5).forEach((t) => {
-        if (!t.esUnderdog) {
-          msg += `• <b>${t.peleador}</b> (vs ${t.rival})${t.fecha} ✅ <b>Favorito con Valor</b>\n` +
-                 `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b> | Edge: <b>+${t.edge}%</b>\n\n`;
-        } else {
-          msg += `• <b>${t.peleador}</b> (vs ${t.rival})${t.fecha} ⚠️ <b>ALTO RIESGO / UNDERDOG</b>\n` +
-                 `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b> | Edge: <b>+${t.edge}%</b>\n` +
-                 `  <i>Nota: Tiene valor estadístico pero probabilidad baja (menor a 50%). Usar stake mínimo y NO meter en parlays.</i>\n\n`;
-        }
-      });
-    }
-
-    // SECCIÓN 3: DESCARTES Y TRAMPAS
-    msg += `${div}\n` +
-           `⚠️ <b>3. A DEJAR POR FUERA (TRAMPAS Y DESCARTES)</b>\n` +
-           `<i>Evitar apostar en estos combates al ganador:</i>\n\n`;
+           `<b>2. SELECCIONES A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
+           `<i>Combates con paridad excesiva o relación riesgo/retorno desfavorable:</i>\n\n`;
 
     if (tier3Descartes.length === 0) {
-      msg += `• <i>No se detectaron trampas flagrantes en la cartelera.</i>\n\n`;
+      msg += `• <i>No se detectaron emparejamientos de riesgo extremo en la cartelera.</i>\n\n`;
     } else {
       tier3Descartes.slice(0, 4).forEach((t) => {
         msg += `• <b>${t.pelea}</b>${t.fecha}\n` +
-               `  ❌ <i>${t.razon}</i>\n\n`;
+               `  Motivo: <i>${t.razon}</i>\n\n`;
       });
     }
 
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🎯 Asaltos & Métodos (Props)', 'opt_ufc_props_detail')],
         [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera')],
-        [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+        [Markup.button.callback('💎 Ver Apuestas con Valor (+EV)', 'opt_ufc_the_odds')],
+        [Markup.button.callback('« Volver a UFC', 'menu_ufc')],
       ]),
     });
   }
@@ -1001,7 +965,7 @@ export class ApuestasCronService {
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🧠 Estrategia (Bases Parlay, Valor & Trampas)', 'opt_nfl_estrategia')],
+          [Markup.button.callback('📊 Estrategia (Recomendadas & Descartes)', 'opt_nfl_estrategia')],
           [Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_nfl_valor')],
           [Markup.button.callback('📋 Jornada Completa (Cuotas & Hándicaps)', 'opt_nfl_jornada')],
           [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_nfl_live')],
@@ -1014,7 +978,7 @@ export class ApuestasCronService {
   @Action('opt_nfl_estrategia')
   async accionNFLEstrategia(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('⏳ <b>Generando matriz estratégica para NFL (Bases Parlay, Valor y Descartes)...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('⏳ <b>Generando matriz estratégica cuantitativa NFL...</b>', { parse_mode: 'HTML' });
 
     const res = await this.usSportsService.analizarDeporte('nfl');
     if (res.error || !res.juegos || res.juegos.length === 0) {
@@ -1023,7 +987,6 @@ export class ApuestasCronService {
     }
 
     const tier1Bases: any[] = [];
-    const tier2Valor: any[] = [];
     const tier3Descartes: any[] = [];
 
     for (const j of res.juegos) {
@@ -1035,7 +998,7 @@ export class ApuestasCronService {
       const probDiff = Math.abs(j.prob_home - j.prob_away);
       const fechaStr = this.formatFechaCorta(j.commence_time);
 
-      // Tier 1: Bases para Parlay (prob >= 60%)
+      // 1. BASES PARA PARLAY & RECOMENDADAS (Probabilidad sólida >= 60%)
       if (favProb >= 60) {
         tier1Bases.push({
           equipo: favName,
@@ -1047,25 +1010,11 @@ export class ApuestasCronService {
         });
       }
 
-      // Tier 2: Valor (+EV)
-      if (j.has_value && j.value_pick) {
-        const esUnderdog = (j.value_prob || 0) < 50;
-        tier2Valor.push({
-          pick: j.value_pick,
-          partido: `${j.away_team} @ ${j.home_team}`,
-          cuota: j.value_odds || 1.80,
-          prob: Math.round(j.value_prob || 0),
-          edge: j.value_edge || 0,
-          esUnderdog,
-          fecha: fechaStr,
-        });
-      }
-
-      // Tier 3: Descartes y Trampas
+      // 2. A DEJAR POR FUERA / DESCARTES
       if (probDiff <= 7) {
         tier3Descartes.push({
           partido: `${j.away_team} @ ${j.home_team}`,
-          razon: `Juego de alta paridad (${j.prob_away}% vs ${j.prob_home}%). Spread muy cerrado, evitar moneyline directo.`,
+          razon: `Paridad excesiva (${j.prob_away}% vs ${j.prob_home}%). Spread muy apretado, descartar Moneyline directo.`,
           fecha: fechaStr,
         });
       } else if (!j.has_value && favProb < 58 && favOdds <= 1.65) {
@@ -1080,20 +1029,20 @@ export class ApuestasCronService {
     tier1Bases.sort((a, b) => b.prob - a.prob);
 
     const div = '──────────────────────────────';
-    let msg = `🏈 <b>ESTRATEGIA INTELIGENTE NFL (3 NIVELES)</b> 🏈\n` +
-              `<i>Filtrado cuantitativo de Elo dinámico y modelos de margen</i>\n` +
+    let msg = `🏈 <b>ESTRATEGIA CUANTITATIVA APEX | NFL</b>\n` +
+              `<i>Matriz de selección táctica y gestión de riesgo</i>\n` +
               `${div}\n\n`;
 
     // 1. RECOMENDADAS & BASES PARLAY
-    msg += `🛡️ <b>1. RECOMENDADAS & BASES PARA PARLAY</b>\n` +
-           `<i>Favoritos sólidos con probabilidad alta (>= 60%):</i>\n\n`;
+    msg += `<b>1. SELECCIONES RECOMENDADAS & BASES DE PARLAY</b>\n` +
+           `<i>Favoritos sólidos con probabilidad estadística favorable (≥ 60%):</i>\n\n`;
     if (tier1Bases.length === 0) {
-      msg += `• <i>No se detectaron favoritos aplastantes >= 60% en esta jornada.</i>\n\n`;
+      msg += `• <i>No se detectaron favoritos con ventaja estadística concluyente (≥ 60%) en esta jornada.</i>\n\n`;
     } else {
       tier1Bases.slice(0, 4).forEach((t) => {
         msg += `• <b>${t.equipo}</b> (vs ${t.rival})${t.fecha}\n` +
-               `  Cuota: <b>${t.cuota}</b> | Probabilidad IA: <b>${t.prob}%</b>\n` +
-               `  📊 Spread esperado: <i>${t.spread} pts</i>\n\n`;
+               `  Cuota: <b>${t.cuota}</b> | Probabilidad Modelo: <b>${t.prob}%</b>\n` +
+               `  Spread proyectado: <i>${t.spread} pts</i>\n\n`;
       });
 
       if (tier1Bases.length >= 2) {
@@ -1101,42 +1050,23 @@ export class ApuestasCronService {
         const p2 = tier1Bases[1];
         const cuotaCombinada = (p1.cuota * p2.cuota).toFixed(2);
         const probEstimada = Math.round((p1.prob * p2.prob) / 100);
-        msg += `🔗 <b>PARLAY SUGERIDO NFL (2 SELECCIONES):</b>\n` +
-               `  1️⃣ ${p1.equipo} @ ${p1.cuota}\n` +
-               `  2️⃣ ${p2.equipo} @ ${p2.cuota}\n` +
-               `  🔥 <b>Cuota combinada: ${cuotaCombinada}</b> (Confianza: ~${probEstimada}%)\n\n`;
+        msg += `<b>PARLAY SUGERIDO (2 SELECCIONES):</b>\n` +
+               `  Leg 1: <b>${p1.equipo}</b> @ ${p1.cuota}\n` +
+               `  Leg 2: <b>${p2.equipo}</b> @ ${p2.cuota}\n` +
+               `  <b>Cuota combinada: ${cuotaCombinada}</b> (Confianza estimada: ~${probEstimada}%)\n\n`;
       }
     }
 
-    // 2. APUESTAS CON VALOR (+EV)
+    // 2. A DEJAR POR FUERA / DESCARTES
     msg += `${div}\n` +
-           `💎 <b>2. APUESTAS CON VALOR (+EV)</b>\n` +
-           `<i>Ventaja matemática calculada contra las líneas del casino:</i>\n\n`;
-    if (tier2Valor.length === 0) {
-      msg += `• <i>Todas las cuotas de NFL están equilibradas en este momento.</i>\n\n`;
-    } else {
-      tier2Valor.slice(0, 5).forEach((t) => {
-        if (!t.esUnderdog) {
-          msg += `• <b>${t.pick}</b> (${t.partido})${t.fecha} ✅ <b>Favorito con Valor</b>\n` +
-                 `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b> | Edge: <b>+${t.edge}%</b>\n\n`;
-        } else {
-          msg += `• <b>${t.pick}</b> (${t.partido})${t.fecha} ⚠️ <b>ALTO RIESGO / UNDERDOG</b>\n` +
-                 `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b> | Edge: <b>+${t.edge}%</b>\n` +
-                 `  <i>Nota: Paga bien por ser sorpresa pero tiene probabilidad baja (menor a 50%). No incluir en combinadas.</i>\n\n`;
-        }
-      });
-    }
-
-    // 3. A DEJAR POR FUERA / DESCARTES
-    msg += `${div}\n` +
-           `⚠️ <b>3. A DEJAR POR FUERA (TRAMPAS Y DESCARTES)</b>\n` +
-           `<i>Partidos a evitar en línea de ganador moneyline:</i>\n\n`;
+           `<b>2. SELECCIONES A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
+           `<i>Partidos con paridad excesiva o relación riesgo/retorno desfavorable:</i>\n\n`;
     if (tier3Descartes.length === 0) {
-      msg += `• <i>Sin trampas detectadas en la jornada.</i>\n\n`;
+      msg += `• <i>Sin partidos de riesgo anómalo detectados en la jornada.</i>\n\n`;
     } else {
       tier3Descartes.slice(0, 4).forEach((t) => {
         msg += `• <b>${t.partido}</b>${t.fecha}\n` +
-               `  ❌ <i>${t.razon}</i>\n\n`;
+               `  Motivo: <i>${t.razon}</i>\n\n`;
       });
     }
 
@@ -1144,8 +1074,8 @@ export class ApuestasCronService {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('📋 Ver Jornada Completa', 'opt_nfl_jornada')],
-        [Markup.button.callback('💎 Solo Apuestas +EV', 'opt_nfl_valor')],
-        [Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
+        [Markup.button.callback('💎 Ver Apuestas con Valor (+EV)', 'opt_nfl_valor')],
+        [Markup.button.callback('« Volver a NFL', 'menu_nfl')],
       ]),
     });
   }
@@ -1188,7 +1118,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🧠 Ver Estrategia Completa', 'opt_nfl_estrategia')],
+        [Markup.button.callback('📊 Ver Estrategia', 'opt_nfl_estrategia')],
         [Markup.button.callback('📋 Ver Jornada Completa', 'opt_nfl_jornada')],
         [Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
       ]),
@@ -1228,7 +1158,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🧠 Ver Estrategia Completa', 'opt_nfl_estrategia')],
+        [Markup.button.callback('📊 Ver Estrategia', 'opt_nfl_estrategia')],
         [Markup.button.callback('💎 Solo Apuestas +EV', 'opt_nfl_valor')],
         [Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
       ]),
@@ -1279,7 +1209,7 @@ export class ApuestasCronService {
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🧠 Estrategia (Bases Parlay, Valor & Trampas)', 'opt_mlb_estrategia')],
+          [Markup.button.callback('📊 Estrategia (Recomendadas & Descartes)', 'opt_mlb_estrategia')],
           [Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_mlb_valor')],
           [Markup.button.callback('📋 Cartelera Completa (Moneyline & Runline)', 'opt_mlb_cartelera')],
           [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_mlb_live')],
@@ -1292,7 +1222,7 @@ export class ApuestasCronService {
   @Action('opt_mlb_estrategia')
   async accionMLBEstrategia(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('⏳ <b>Generando matriz estratégica para MLB (Bases Parlay, Valor y Descartes)...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('⏳ <b>Generando matriz estratégica cuantitativa MLB...</b>', { parse_mode: 'HTML' });
 
     const res = await this.usSportsService.analizarDeporte('mlb');
     if (res.error || !res.juegos || res.juegos.length === 0) {
@@ -1301,7 +1231,6 @@ export class ApuestasCronService {
     }
 
     const tier1Bases: any[] = [];
-    const tier2Valor: any[] = [];
     const tier3Descartes: any[] = [];
 
     for (const j of res.juegos) {
@@ -1313,7 +1242,7 @@ export class ApuestasCronService {
       const probDiff = Math.abs(j.prob_home - j.prob_away);
       const fechaStr = this.formatFechaCorta(j.commence_time);
 
-      // Tier 1: Bases para Parlay (prob >= 56% en béisbol es fuerte)
+      // 1. BASES PARA PARLAY & RECOMENDADAS (prob >= 56% en béisbol es fuerte)
       if (favProb >= 56) {
         tier1Bases.push({
           equipo: favName,
@@ -1325,31 +1254,17 @@ export class ApuestasCronService {
         });
       }
 
-      // Tier 2: Valor (+EV)
-      if (j.has_value && j.value_pick) {
-        const esUnderdog = (j.value_prob || 0) < 50;
-        tier2Valor.push({
-          pick: j.value_pick,
-          partido: `${j.away_team} @ ${j.home_team}`,
-          cuota: j.value_odds || 1.80,
-          prob: Math.round(j.value_prob || 0),
-          edge: j.value_edge || 0,
-          esUnderdog,
-          fecha: fechaStr,
-        });
-      }
-
-      // Tier 3: Descartes y Trampas
+      // 2. A DEJAR POR FUERA / DESCARTES
       if (probDiff <= 5) {
         tier3Descartes.push({
           partido: `${j.away_team} @ ${j.home_team}`,
-          razon: `Duelo de pitcheo parejo (${j.prob_away}% vs ${j.prob_home}%). Moneda al aire en moneyline.`,
+          razon: `Duelo de pitcheo parejo (${j.prob_away}% vs ${j.prob_home}%). Moneda al aire en Moneyline.`,
           fecha: fechaStr,
         });
       } else if (!j.has_value && favProb < 54 && favOdds <= 1.65) {
         tier3Descartes.push({
           partido: `${j.away_team} @ ${j.home_team}`,
-          razon: `Falso favorito (${favName} @ ${favOdds}). Cuota muy baja para una ventaja mínima (${Math.round(favProb)}%).`,
+          razon: `Falso favorito (${favName} @ ${favOdds}). Cuota muy castigada para una ventaja mínima (${Math.round(favProb)}%).`,
           fecha: fechaStr,
         });
       }
@@ -1358,20 +1273,20 @@ export class ApuestasCronService {
     tier1Bases.sort((a, b) => b.prob - a.prob);
 
     const div = '──────────────────────────────';
-    let msg = `⚾ <b>ESTRATEGIA INTELIGENTE MLB (3 NIVELES)</b> ⚾\n` +
-              `<i>Filtrado cuantitativo: Efectividad de pitcheo y Teorema Pitagórico</i>\n` +
+    let msg = `⚾ <b>ESTRATEGIA CUANTITATIVA APEX | MLB</b>\n` +
+              `<i>Matriz de selección táctica y gestión de riesgo</i>\n` +
               `${div}\n\n`;
 
     // 1. RECOMENDADAS & BASES PARLAY
-    msg += `🛡️ <b>1. RECOMENDADAS & BASES PARA PARLAY</b>\n` +
-           `<i>Favoritos sólidos de béisbol con probabilidad alta (>= 56%):</i>\n\n`;
+    msg += `<b>1. SELECCIONES RECOMENDADAS & BASES DE PARLAY</b>\n` +
+           `<i>Favoritos sólidos con probabilidad estadística favorable (≥ 56%):</i>\n\n`;
     if (tier1Bases.length === 0) {
-      msg += `• <i>No se detectaron favoritos aplastantes >= 56% en esta cartelera.</i>\n\n`;
+      msg += `• <i>No se detectaron favoritos con ventaja estadística concluyente (≥ 56%) en esta cartelera.</i>\n\n`;
     } else {
       tier1Bases.slice(0, 4).forEach((t) => {
         msg += `• <b>${t.equipo}</b> (vs ${t.rival})${t.fecha}\n` +
-               `  Cuota: <b>${t.cuota}</b> | Probabilidad IA: <b>${t.prob}%</b>\n` +
-               `  ⚾ Carreras esperadas: <i>${t.total}</i>\n\n`;
+               `  Cuota: <b>${t.cuota}</b> | Probabilidad Modelo: <b>${t.prob}%</b>\n` +
+               `  Carreras esperadas: <i>${t.total}</i>\n\n`;
       });
 
       if (tier1Bases.length >= 2) {
@@ -1379,42 +1294,23 @@ export class ApuestasCronService {
         const p2 = tier1Bases[1];
         const cuotaCombinada = (p1.cuota * p2.cuota).toFixed(2);
         const probEstimada = Math.round((p1.prob * p2.prob) / 100);
-        msg += `🔗 <b>PARLAY SUGERIDO MLB (2 SELECCIONES):</b>\n` +
-               `  1️⃣ ${p1.equipo} @ ${p1.cuota}\n` +
-               `  2️⃣ ${p2.equipo} @ ${p2.cuota}\n` +
-               `  🔥 <b>Cuota combinada: ${cuotaCombinada}</b> (Confianza: ~${probEstimada}%)\n\n`;
+        msg += `<b>PARLAY SUGERIDO (2 SELECCIONES):</b>\n` +
+               `  Leg 1: <b>${p1.equipo}</b> @ ${p1.cuota}\n` +
+               `  Leg 2: <b>${p2.equipo}</b> @ ${p2.cuota}\n` +
+               `  <b>Cuota combinada: ${cuotaCombinada}</b> (Confianza estimada: ~${probEstimada}%)\n\n`;
       }
     }
 
-    // 2. APUESTAS CON VALOR (+EV)
+    // 2. A DEJAR POR FUERA / DESCARTES
     msg += `${div}\n` +
-           `💎 <b>2. APUESTAS CON VALOR (+EV)</b>\n` +
-           `<i>Ventaja matemática calculada contra las cuotas de las casas:</i>\n\n`;
-    if (tier2Valor.length === 0) {
-      msg += `• <i>Todas las cuotas de MLB están equilibradas en este momento.</i>\n\n`;
-    } else {
-      tier2Valor.slice(0, 5).forEach((t) => {
-        if (!t.esUnderdog) {
-          msg += `• <b>${t.pick}</b> (${t.partido})${t.fecha} ✅ <b>Favorito con Valor</b>\n` +
-                 `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b> | Edge: <b>+${t.edge}%</b>\n\n`;
-        } else {
-          msg += `• <b>${t.pick}</b> (${t.partido})${t.fecha} ⚠️ <b>ALTO RIESGO / UNDERDOG</b>\n` +
-                 `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b> | Edge: <b>+${t.edge}%</b>\n` +
-                 `  <i>Nota: Cuota alta con valor (+EV) pero riesgo elevado (menor a 50% de probabilidad). No combinar en parlay.</i>\n\n`;
-        }
-      });
-    }
-
-    // 3. A DEJAR POR FUERA / DESCARTES
-    msg += `${div}\n` +
-           `⚠️ <b>3. A DEJAR POR FUERA (TRAMPAS Y DESCARTES)</b>\n` +
-           `<i>Partidos a descartar en línea de ganador moneyline:</i>\n\n`;
+           `<b>2. SELECCIONES A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
+           `<i>Partidos con paridad excesiva en pitcheo o relación riesgo/retorno desfavorable:</i>\n\n`;
     if (tier3Descartes.length === 0) {
-      msg += `• <i>Sin trampas detectadas en la cartelera.</i>\n\n`;
+      msg += `• <i>Sin partidos de riesgo anómalo detectados en la jornada.</i>\n\n`;
     } else {
       tier3Descartes.slice(0, 4).forEach((t) => {
         msg += `• <b>${t.partido}</b>${t.fecha}\n` +
-               `  ❌ <i>${t.razon}</i>\n\n`;
+               `  Motivo: <i>${t.razon}</i>\n\n`;
       });
     }
 
@@ -1422,8 +1318,8 @@ export class ApuestasCronService {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera')],
-        [Markup.button.callback('💎 Solo Apuestas +EV', 'opt_mlb_valor')],
-        [Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
+        [Markup.button.callback('💎 Ver Apuestas con Valor (+EV)', 'opt_mlb_valor')],
+        [Markup.button.callback('« Volver a MLB', 'menu_mlb')],
       ]),
     });
   }
@@ -1465,7 +1361,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🧠 Ver Estrategia Completa', 'opt_mlb_estrategia')],
+        [Markup.button.callback('📊 Ver Estrategia', 'opt_mlb_estrategia')],
         [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera')],
         [Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
       ]),
@@ -1504,7 +1400,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🧠 Ver Estrategia Completa', 'opt_mlb_estrategia')],
+        [Markup.button.callback('📊 Ver Estrategia', 'opt_mlb_estrategia')],
         [Markup.button.callback('💎 Solo Apuestas +EV', 'opt_mlb_valor')],
         [Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
       ]),
@@ -1555,7 +1451,7 @@ export class ApuestasCronService {
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🧠 Estrategia (Bases Parlay, Valor & Trampas)', 'opt_nba_estrategia')],
+          [Markup.button.callback('📊 Estrategia (Recomendadas & Descartes)', 'opt_nba_estrategia')],
           [Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_nba_valor')],
           [Markup.button.callback('📋 Próximos Partidos (Cuotas & Hándicaps)', 'opt_nba_partidos')],
           [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_nba_live')],
@@ -1568,7 +1464,7 @@ export class ApuestasCronService {
   @Action('opt_nba_estrategia')
   async accionNBAEstrategia(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('⏳ <b>Generando matriz estratégica para NBA (Bases Parlay, Valor y Descartes)...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('⏳ <b>Generando matriz estratégica cuantitativa NBA...</b>', { parse_mode: 'HTML' });
 
     const res = await this.usSportsService.analizarDeporte('nba');
     if (res.error || !res.juegos || res.juegos.length === 0) {
@@ -1577,7 +1473,6 @@ export class ApuestasCronService {
     }
 
     const tier1Bases: any[] = [];
-    const tier2Valor: any[] = [];
     const tier3Descartes: any[] = [];
 
     for (const j of res.juegos) {
@@ -1589,7 +1484,7 @@ export class ApuestasCronService {
       const probDiff = Math.abs(j.prob_home - j.prob_away);
       const fechaStr = this.formatFechaCorta(j.commence_time);
 
-      // Tier 1: Bases para Parlay (prob >= 60%)
+      // 1. BASES PARA PARLAY & RECOMENDADAS (prob >= 60%)
       if (favProb >= 60) {
         tier1Bases.push({
           equipo: favName,
@@ -1601,31 +1496,17 @@ export class ApuestasCronService {
         });
       }
 
-      // Tier 2: Valor (+EV)
-      if (j.has_value && j.value_pick) {
-        const esUnderdog = (j.value_prob || 0) < 50;
-        tier2Valor.push({
-          pick: j.value_pick,
-          partido: `${j.away_team} @ ${j.home_team}`,
-          cuota: j.value_odds || 1.80,
-          prob: Math.round(j.value_prob || 0),
-          edge: j.value_edge || 0,
-          esUnderdog,
-          fecha: fechaStr,
-        });
-      }
-
-      // Tier 3: Descartes y Trampas
+      // 2. A DEJAR POR FUERA / DESCARTES
       if (probDiff <= 6) {
         tier3Descartes.push({
           partido: `${j.away_team} @ ${j.home_team}`,
-          razon: `Partido muy parejo (${j.prob_away}% vs ${j.prob_home}%). Spread muy apretado, no arriesgar moneyline directo.`,
+          razon: `Partido muy parejo (${j.prob_away}% vs ${j.prob_home}%). Spread muy apretado, descartar Moneyline directo.`,
           fecha: fechaStr,
         });
       } else if (!j.has_value && favProb < 57 && favOdds <= 1.60) {
         tier3Descartes.push({
           partido: `${j.away_team} @ ${j.home_team}`,
-          razon: `Falso favorito (${favName} @ ${favOdds}). Cuota muy corta para solo ${Math.round(favProb)}% probabilidad.`,
+          razon: `Falso favorito (${favName} @ ${favOdds}). Cuota muy castigada para solo ${Math.round(favProb)}% probabilidad.`,
           fecha: fechaStr,
         });
       }
@@ -1634,20 +1515,20 @@ export class ApuestasCronService {
     tier1Bases.sort((a, b) => b.prob - a.prob);
 
     const div = '──────────────────────────────';
-    let msg = `🏀 <b>ESTRATEGIA INTELIGENTE NBA (3 NIVELES)</b> 🏀\n` +
-              `<i>Filtrado cuantitativo: Ratings ofensivo/defensivo y Pace</i>\n` +
+    let msg = `🏀 <b>ESTRATEGIA CUANTITATIVA APEX | NBA</b>\n` +
+              `<i>Matriz de selección táctica y gestión de riesgo</i>\n` +
               `${div}\n\n`;
 
     // 1. RECOMENDADAS & BASES PARLAY
-    msg += `🛡️ <b>1. RECOMENDADAS & BASES PARA PARLAY</b>\n` +
-           `<i>Favoritos sólidos de básquetbol con probabilidad alta (>= 60%):</i>\n\n`;
+    msg += `<b>1. SELECCIONES RECOMENDADAS & BASES DE PARLAY</b>\n` +
+           `<i>Favoritos sólidos con probabilidad estadística favorable (≥ 60%):</i>\n\n`;
     if (tier1Bases.length === 0) {
-      msg += `• <i>No se detectaron favoritos aplastantes >= 60% en esta jornada.</i>\n\n`;
+      msg += `• <i>No se detectaron favoritos con ventaja estadística concluyente (≥ 60%) en esta jornada.</i>\n\n`;
     } else {
       tier1Bases.slice(0, 4).forEach((t) => {
         msg += `• <b>${t.equipo}</b> (vs ${t.rival})${t.fecha}\n` +
-               `  Cuota: <b>${t.cuota}</b> | Probabilidad IA: <b>${t.prob}%</b>\n` +
-               `  🏀 Margen proyectado: <i>${t.spread} pts</i>\n\n`;
+               `  Cuota: <b>${t.cuota}</b> | Probabilidad Modelo: <b>${t.prob}%</b>\n` +
+               `  Margen proyectado: <i>${t.spread} pts</i>\n\n`;
       });
 
       if (tier1Bases.length >= 2) {
@@ -1655,42 +1536,23 @@ export class ApuestasCronService {
         const p2 = tier1Bases[1];
         const cuotaCombinada = (p1.cuota * p2.cuota).toFixed(2);
         const probEstimada = Math.round((p1.prob * p2.prob) / 100);
-        msg += `🔗 <b>PARLAY SUGERIDO NBA (2 SELECCIONES):</b>\n` +
-               `  1️⃣ ${p1.equipo} @ ${p1.cuota}\n` +
-               `  2️⃣ ${p2.equipo} @ ${p2.cuota}\n` +
-               `  🔥 <b>Cuota combinada: ${cuotaCombinada}</b> (Confianza: ~${probEstimada}%)\n\n`;
+        msg += `<b>PARLAY SUGERIDO (2 SELECCIONES):</b>\n` +
+               `  Leg 1: <b>${p1.equipo}</b> @ ${p1.cuota}\n` +
+               `  Leg 2: <b>${p2.equipo}</b> @ ${p2.cuota}\n` +
+               `  <b>Cuota combinada: ${cuotaCombinada}</b> (Confianza estimada: ~${probEstimada}%)\n\n`;
       }
     }
 
-    // 2. APUESTAS CON VALOR (+EV)
+    // 2. A DEJAR POR FUERA / DESCARTES
     msg += `${div}\n` +
-           `💎 <b>2. APUESTAS CON VALOR (+EV)</b>\n` +
-           `<i>Ventaja matemática calculada contra las cuotas del mercado:</i>\n\n`;
-    if (tier2Valor.length === 0) {
-      msg += `• <i>Todas las cuotas de NBA están equilibradas en este momento.</i>\n\n`;
-    } else {
-      tier2Valor.slice(0, 5).forEach((t) => {
-        if (!t.esUnderdog) {
-          msg += `• <b>${t.pick}</b> (${t.partido})${t.fecha} ✅ <b>Favorito con Valor</b>\n` +
-                 `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b> | Edge: <b>+${t.edge}%</b>\n\n`;
-        } else {
-          msg += `• <b>${t.pick}</b> (${t.partido})${t.fecha} ⚠️ <b>ALTO RIESGO / UNDERDOG</b>\n` +
-                 `  Cuota: <b>${t.cuota}</b> | Prob IA: <b>${t.prob}%</b> | Edge: <b>+${t.edge}%</b>\n` +
-                 `  <i>Nota: Cuota alta con valor (+EV) pero riesgo elevado (menor a 50% de probabilidad). No combinar en parlay.</i>\n\n`;
-        }
-      });
-    }
-
-    // 3. A DEJAR POR FUERA / DESCARTES
-    msg += `${div}\n` +
-           `⚠️ <b>3. A DEJAR POR FUERA (TRAMPAS Y DESCARTES)</b>\n` +
-           `<i>Partidos a descartar en línea de ganador moneyline:</i>\n\n`;
+           `<b>2. SELECCIONES A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
+           `<i>Partidos con paridad excesiva o relación riesgo/retorno desfavorable:</i>\n\n`;
     if (tier3Descartes.length === 0) {
-      msg += `• <i>Sin trampas detectadas en la jornada.</i>\n\n`;
+      msg += `• <i>Sin partidos de riesgo anómalo detectados en la jornada.</i>\n\n`;
     } else {
       tier3Descartes.slice(0, 4).forEach((t) => {
         msg += `• <b>${t.partido}</b>${t.fecha}\n` +
-               `  ❌ <i>${t.razon}</i>\n\n`;
+               `  Motivo: <i>${t.razon}</i>\n\n`;
       });
     }
 
@@ -1698,8 +1560,8 @@ export class ApuestasCronService {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('📋 Próximos Partidos', 'opt_nba_partidos')],
-        [Markup.button.callback('💎 Solo Apuestas +EV', 'opt_nba_valor')],
-        [Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
+        [Markup.button.callback('💎 Ver Apuestas con Valor (+EV)', 'opt_nba_valor')],
+        [Markup.button.callback('« Volver a NBA', 'menu_nba')],
       ]),
     });
   }
@@ -1742,7 +1604,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🧠 Ver Estrategia Completa', 'opt_nba_estrategia')],
+        [Markup.button.callback('📊 Ver Estrategia', 'opt_nba_estrategia')],
         [Markup.button.callback('📋 Ver Próximos Partidos', 'opt_nba_partidos')],
         [Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
       ]),
@@ -1782,7 +1644,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🧠 Ver Estrategia Completa', 'opt_nba_estrategia')],
+        [Markup.button.callback('📊 Ver Estrategia', 'opt_nba_estrategia')],
         [Markup.button.callback('💎 Solo Apuestas +EV', 'opt_nba_valor')],
         [Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
       ]),
@@ -1835,7 +1697,7 @@ export class ApuestasCronService {
         ...Markup.inlineKeyboard([
           [
             Markup.button.callback(
-              '🧠 Estrategia (Valor, Parlay & Descarte)',
+              '📊 Estrategia (Recomendadas & Descartes)',
               `opt_estrategia_${ligaKey}`,
             ),
           ],
@@ -2232,7 +2094,7 @@ export class ApuestasCronService {
       await this.bot.telegram.sendMessage(chatId, msg, {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🧠 Ver Estrategia UFC', 'opt_ufc_estrategia')],
+          [Markup.button.callback('📊 Ver Estrategia UFC', 'opt_ufc_estrategia')],
           [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera')],
         ]),
       });
@@ -2825,12 +2687,12 @@ export class ApuestasCronService {
     ligaKey?: string,
   ) {
     try {
-      await ctx.reply('⏳ <b>Analizando partidos y clasificando por estrategia (Valor, Parlays y Descartes)...</b>', { parse_mode: 'HTML' });
+      await ctx.reply('⏳ <b>Generando matriz estratégica cuantitativa...</b>', { parse_mode: 'HTML' });
       const partidosPendientes = await this.obtenerPartidosPendientesLiga(ligaInfo.id);
 
       const div = '──────────────────────────────';
-      let mensaje = `🧠 <b>ESTRATEGIA INTELIGENTE FÚTBOL (3 NIVELES)</b>\n` +
-                    `<i>${ligaInfo.nombre.toUpperCase()} | Clasificación Cuantitativa</i>\n` +
+      let mensaje = `⚽ <b>ESTRATEGIA CUANTITATIVA APEX | ${ligaInfo.nombre.toUpperCase()}</b>\n` +
+                    `<i>Matriz de selección táctica y gestión de riesgo</i>\n` +
                     `${div}\n\n`;
 
       if (partidosPendientes.length > 0) {
@@ -2863,9 +2725,8 @@ export class ApuestasCronService {
         if (partidosInput.length > 0) {
           const predicciones = await this.aiEngine.analizarJornada(partidosInput);
 
-          const tier1: any[] = [];
-          const tier2: any[] = [];
-          const tier3: any[] = [];
+          const tierBases: any[] = [];
+          const tierDescartes: any[] = [];
 
           for (const pred of predicciones) {
             if (!pred || !pred.probabilidades_1X2) continue;
@@ -2879,18 +2740,16 @@ export class ApuestasCronService {
 
             const p1X = parseFloat((pred.doble_oportunidad?.['1X'] || '0').replace('%', ''));
             const pX2 = parseFloat((pred.doble_oportunidad?.X2 || '0').replace('%', ''));
-            const over25 = parseFloat((pred.mercado_goles?.Over_2_5 || '0').replace('%', ''));
-            const under25 = parseFloat((pred.mercado_goles?.Under_2_5 || '0').replace('%', ''));
 
             const xgL = pred.xg_esperados?.xg_local ?? 1.4;
             const xgV = pred.xg_esperados?.xg_visitante ?? 1.1;
             const xgDiff = Math.abs(xgL - xgV);
 
-            // Tier 2: Seguras (Bases Parlay) -> Favorito con prob >= 65% o Doble Oportunidad >= 85%
+            // 1. Recomendadas / Bases Parlay -> Favorito con prob >= 65% o Doble Oportunidad >= 85%
             if (maxProb >= 65 || (p1 >= 50 && p1X >= 85) || (p2 >= 50 && pX2 >= 85)) {
               const pick = p1 >= p2 ? homeTeam : awayTeam;
               const seguraType = maxProb >= 65 ? `Victoria Directa (${Math.round(maxProb)}%)` : `Doble Oportunidad (${p1 >= p2 ? '1X' : 'X2'}: ${Math.max(p1X, pX2)}%)`;
-              tier2.push({
+              tierBases.push({
                 partido: pred.partido,
                 seleccion: pick,
                 tipo: seguraType,
@@ -2900,66 +2759,38 @@ export class ApuestasCronService {
               continue;
             }
 
-            // Tier 1: Gran Valor (+EV) -> Probabilidad sólida (52% a 64%) con buen diferencial xG
-            if (maxProb >= 52 && xgDiff >= 0.45) {
-              const pick = p1 === maxProb ? `Victoria ${homeTeam}` : (p2 === maxProb ? `Victoria ${awayTeam}` : 'Empate');
-              const alt = over25 >= 60 ? `Over 2.5 Goles (${over25}%)` : (under25 >= 60 ? `Under 2.5 Goles (${under25}%)` : `1X (${p1X}%)`);
-              tier1.push({
-                partido: pred.partido,
-                seleccion: pick,
-                prob: Math.round(maxProb),
-                alternativa: alt,
-                xg: `${xgL} vs ${xgV}`,
-              });
-              continue;
-            }
-
-            // Tier 3: Trampas / A Descartar -> Máxima probabilidad < 45% o xG muy parejo
+            // 2. Trampas / A Descartar -> Máxima probabilidad < 45% o xG muy parejo
             if (maxProb < 45 || (maxProb < 52 && xgDiff < 0.25)) {
-              tier3.push({
+              tierDescartes.push({
                 partido: pred.partido,
-                razon: `Volado 3-vías (${Math.round(p1)}% L / ${Math.round(pX)}% E / ${Math.round(p2)}% V). Riesgo excesivo en línea 1X2.`,
+                razon: `Paridad extrema (3-vías: ${Math.round(p1)}% L / ${Math.round(pX)}% E / ${Math.round(p2)}% V). Descartar Moneyline directo.`,
               });
             }
           }
 
-          // 1. GRAN VALOR
-          mensaje += `💎 <b>1. APUESTAS DE GRAN VALOR (+EV)</b>\n` +
-                     `<i>Superioridad táctica y cuota atractiva (mayor rentabilidad):</i>\n\n`;
-          if (tier1.length === 0) {
-            mensaje += `• <i>No hay partidos con ventaja táctica destacada en esta fecha.</i>\n\n`;
+          // SECCIÓN 1: RECOMENDADAS & BASES PARLAY
+          mensaje += `<b>1. SELECCIONES RECOMENDADAS & BASES DE PARLAY</b>\n` +
+                     `<i>Máxima probabilidad estadística pura (>65% o Doble Oportunidad >85%):</i>\n\n`;
+          if (tierBases.length === 0) {
+            mensaje += `• <i>No se detectaron favoritos con ventaja estadística concluyente para bases de parlay en esta fecha.</i>\n\n`;
           } else {
-            tier1.forEach((t) => {
+            tierBases.forEach((t) => {
               mensaje += `• <b>${t.partido}</b>\n` +
-                         `  🎯 Selección: <b>${t.seleccion}</b> (Prob: <b>${t.prob}%</b> | xG: ${t.xg})\n` +
-                         `  🛡️ Alternativa: <i>${t.alternativa}</i>\n\n`;
+                         `  Base: <b>${t.seleccion}</b> (${t.tipo})\n` +
+                         `  Métricas xG: <i>${t.xg}</i>\n\n`;
             });
           }
 
-          // 2. BASES PARLAY
+          // SECCIÓN 2: A DESCARTAR
           mensaje += `${div}\n` +
-                     `🛡️ <b>2. OPCIONES SEGURAS (BASES PARA PARLAY)</b>\n` +
-                     `<i>Máxima probabilidad pura (>65% o Doble Op >85%) para combinar:</i>\n\n`;
-          if (tier2.length === 0) {
-            mensaje += `• <i>No se detectaron favoritos aplastantes para bases de parlay.</i>\n\n`;
+                     `<b>2. SELECCIONES A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
+                     `<i>Enfrentamientos de alta paridad (volado 3-vías) o riesgo excesivo:</i>\n\n`;
+          if (tierDescartes.length === 0) {
+            mensaje += `• <i>Sin trampas estadísticas detectadas en esta fecha.</i>\n\n`;
           } else {
-            tier2.forEach((t) => {
+            tierDescartes.forEach((t) => {
               mensaje += `• <b>${t.partido}</b>\n` +
-                         `  🎯 Base: <b>${t.seleccion}</b> — ${t.tipo}\n` +
-                         `  📊 Métricas xG: ${t.xg}\n\n`;
-            });
-          }
-
-          // 3. A DESCARTAR
-          mensaje += `${div}\n` +
-                     `⚠️ <b>3. PARTIDOS A DESCARTAR (TRAMPAS / ALTO RIESGO)</b>\n` +
-                     `<i>Enfrentamientos muy parejos o trampas estadísticas:</i>\n\n`;
-          if (tier3.length === 0) {
-            mensaje += `• <i>Sin trampas estadísticas detectadas.</i>\n\n`;
-          } else {
-            tier3.forEach((t) => {
-              mensaje += `• <b>${t.partido}</b>\n` +
-                         `  ⚠️ <i>${t.razon}</i>\n\n`;
+                         `  Motivo: <i>${t.razon}</i>\n\n`;
             });
           }
         }
