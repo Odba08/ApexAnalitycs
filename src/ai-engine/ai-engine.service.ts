@@ -41,7 +41,7 @@ interface ApiResponse {
 @Injectable()
 export class AiEngineService {
   private readonly logger = new Logger(AiEngineService.name);
-  private readonly pythonApiUrl = 'http://127.0.0.1:8000/analizar-completo';
+  private readonly pythonBaseUrl = process.env.PYTHON_ML_URL || 'https://pythonmachinelearning.onrender.com';
 
   constructor(private readonly httpService: HttpService) {}
 
@@ -51,8 +51,9 @@ export class AiEngineService {
         `Enviando ${partidos.length} partidos al motor cuantitativo (Python)...`,
       );
 
+      const targetUrl = `${this.pythonBaseUrl}/analizar-completo`;
       const response: AxiosResponse<ApiResponse> = await firstValueFrom(
-        this.httpService.post<ApiResponse>(this.pythonApiUrl, partidos),
+        this.httpService.post<ApiResponse>(targetUrl, partidos, { timeout: 30000 }),
       );
 
       return response.data.analisis_multiliga;

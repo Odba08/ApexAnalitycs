@@ -44,6 +44,14 @@ export class ApuestasCronService {
         this.logger.warn(`Keep-alive ping intento: ${e.message}`);
       }
     }
+
+    const pythonUrl = process.env.PYTHON_ML_URL || 'https://pythonmachinelearning.onrender.com';
+    try {
+      await axios.get(`${pythonUrl}/predecir-ufc`, { timeout: 15000 });
+      this.logger.log(`Keep-alive ping exitoso a Python ML: ${pythonUrl}`);
+    } catch (e) {
+      this.logger.warn(`Keep-alive ping intento a Python ML: ${e.message}`);
+    }
   }
 
   // Helper para generar fechas vivas en tiempo real (por defecto 2 días atrás -> 7 días adelante, máximo 1 semana)
@@ -365,7 +373,8 @@ export class ApuestasCronService {
     const res = await this.f1Service.analizarProximoGP();
 
     if (res.error || !res.analisis_f1) {
-      return ctx.reply('⚠️ No se pudo generar el informe de F1 en este momento.');
+      await ctx.reply('⚠️ No se pudo generar el informe de F1 en este momento.');
+      return;
     }
 
     const gpNombre = res.gp ? res.gp.nombre : 'Gran Premio de Azerbaiyán (Bakú)';
@@ -432,7 +441,8 @@ export class ApuestasCronService {
 
     const res = await this.f1Service.analizarProximoGP();
     if (res.error || !res.analisis_f1) {
-      return ctx.reply('⚠️ No se pudieron cargar los datos.');
+      await ctx.reply('⚠️ No se pudieron cargar los datos.');
+      return;
     }
 
     const analisis = res.analisis_f1;
@@ -530,7 +540,8 @@ export class ApuestasCronService {
 
     const data = await this.ufcService.obtenerCarteleraUFC();
     if (data.error || !data.analisis_ufc) {
-      return ctx.reply('⚠️ No se pudieron obtener los datos de la UFC en este momento.');
+      await ctx.reply('⚠️ No se pudieron obtener los datos de la UFC en este momento.');
+      return;
     }
 
     const combates = data.analisis_ufc;
@@ -652,7 +663,8 @@ export class ApuestasCronService {
 
     const data = await this.ufcService.escanearTheOddsAPI();
     if (data.error || !data.combates) {
-      return ctx.reply(`⚠️ ${data.error || 'No se pudieron consultar las cuotas en vivo.'}`);
+      await ctx.reply(`⚠️ ${data.error || 'No se pudieron consultar las cuotas en vivo.'}`);
+      return;
     }
 
     const conValor = data.combates.filter((c) => c.has_value);
@@ -722,7 +734,8 @@ export class ApuestasCronService {
 
     const data = await this.ufcService.obtenerCarteleraUFC();
     if (data.error || !data.analisis_ufc) {
-      return ctx.reply('⚠️ No se pudieron obtener los datos de la UFC en este momento.');
+      await ctx.reply('⚠️ No se pudieron obtener los datos de la UFC en este momento.');
+      return;
     }
 
     const conValor = data.analisis_ufc.filter((c) => c.has_value);
@@ -770,7 +783,8 @@ export class ApuestasCronService {
 
     const data = await this.ufcService.obtenerCarteleraUFC();
     if (data.error || !data.analisis_ufc) {
-      return ctx.reply('⚠️ No se pudieron obtener los datos de la UFC.');
+      await ctx.reply('⚠️ No se pudieron obtener los datos de la UFC.');
+      return;
     }
 
     const div = '──────────────────────────────';
@@ -812,7 +826,8 @@ export class ApuestasCronService {
 
     const data = await this.ufcService.obtenerCarteleraUFC();
     if (data.error || !data.analisis_ufc) {
-      return ctx.reply('⚠️ No se pudieron obtener los props de la UFC.');
+      await ctx.reply('⚠️ No se pudieron obtener los props de la UFC.');
+      return;
     }
 
     const div = '──────────────────────────────';
@@ -849,7 +864,8 @@ export class ApuestasCronService {
 
     const data = await this.ufcService.obtenerCarteleraUFC();
     if (data.error || !data.analisis_ufc) {
-      return ctx.reply('⚠️ No se pudieron obtener los datos.');
+      await ctx.reply('⚠️ No se pudieron obtener los datos.');
+      return;
     }
 
     const div = '──────────────────────────────';
@@ -1155,7 +1171,7 @@ export class ApuestasCronService {
       }
 
       if (topAlertas.length === 0) {
-        return ctx.reply(
+        await ctx.reply(
           `ℹ️ No hay apuestas registradas para el filtro seleccionado (${liga}).`,
           {
             ...Markup.inlineKeyboard([
@@ -1166,6 +1182,7 @@ export class ApuestasCronService {
             ]),
           },
         );
+        return;
       }
 
       let mensaje = `🏆 <b>TOP 5 APUESTAS REGISTRADAS (${liga.toUpperCase()})</b> 🏆\n\n`;
@@ -1619,9 +1636,10 @@ export class ApuestasCronService {
         equiposBD[0];
 
       if (!equipoPrincipal) {
-        return ctx.reply(
+        await ctx.reply(
           `❌ No se encontró ningún club oficial registrado con el nombre "${query}".`,
         );
+        return;
       }
 
       // 2. Obtener partidos en rango dinámico (hasta 21 días adelante para encontrar siempre su próximo cruce)
@@ -2066,7 +2084,7 @@ export class ApuestasCronService {
       }
 
       if (partidosFiltrados.length === 0) {
-        return ctx.reply('ℹ️ No se encontraron marcadores finalizados recientes para ese filtro.', {
+        await ctx.reply('ℹ️ No se encontraron marcadores finalizados recientes para ese filtro.', {
           ...Markup.inlineKeyboard([
             [
               Markup.button.callback('⚽ Menú Fútbol', 'menu_ligas'),
@@ -2074,6 +2092,7 @@ export class ApuestasCronService {
             ],
           ]),
         });
+        return;
       }
 
       partidosFiltrados.sort((a: any, b: any) => {
