@@ -96,11 +96,58 @@ export class UfcService {
   private readonly pythonUrl = process.env.PYTHON_ML_URL || 'http://localhost:8000';
   private readonly theOddsApiKey = process.env.THE_ODDS_API_KEY || '9c4667b47ad5ae80f5de259e91f8ff0f';
 
+  private cachedLiveOdds: TheOddsLiveResponse | null = null;
+  private lastLiveFetch: number = 0;
+
   constructor(private readonly prisma: PrismaService) {}
 
   async obtenerCarteleraUFC(): Promise<PrediccionUFCResponse> {
     try {
-      const res = await axios.get<PrediccionUFCResponse>(`${this.pythonUrl}/predecir-ufc`);
+      // 1. Intentar consultar combates vivos con The-Odds-API y el modelo cuantitativo
+      const liveData = await this.escanearTheOddsAPI();
+      if (liveData && liveData.combates && liveData.combates.length > 0) {
+        const combatesMapped: CombateUFC[] = liveData.combates.map((c) => ({
+          red_fighter: c.fighter_home,
+          blue_fighter: c.fighter_away,
+          weight_class: 'UFC MMA',
+          cuota_red: c.odds_home,
+          cuota_blue: c.odds_away,
+          prob_red: c.prob_home,
+          prob_blue: c.prob_away,
+          edge_red: c.edge_home,
+          edge_blue: c.edge_away,
+          reach_dif: c.reach_dif || 0,
+          age_dif: c.age_dif || 0,
+          sig_str_dif: c.sig_str_dif || 0,
+          avg_td_dif: c.avg_td_dif || 0,
+          value_pick: c.value_pick,
+          value_side: c.value_side === 'HOME' ? 'RED' : c.value_side === 'AWAY' ? 'BLUE' : null,
+          value_odds: c.value_odds,
+          value_prob: c.value_prob,
+          value_edge: c.value_edge,
+          has_value: c.has_value,
+          props: c.props,
+        }));
+
+        for (const c of combatesMapped) {
+          if (c.has_value) {
+            await this.registrarAlertaUFC(c);
+          }
+        }
+
+        return {
+          total_combates: combatesMapped.length,
+          combates_con_valor: combatesMapped.filter((c) => c.has_value).length,
+          analisis_ufc: combatesMapped,
+        };
+      }
+    } catch (e) {
+      this.logger.warn(`Error obteniendo combates UFC en vivo: ${e.message}`);
+    }
+
+    // 2. Fallback a Python /predecir-ufc si The-Odds-API no tuviera eventos
+    try {
+      const res = await axios.get<PrediccionUFCResponse>(`${this.pythonUrl}/predecir-ufc`, { timeout: 15000 });
       const data = res.data;
       if (data && data.analisis_ufc) {
         for (const c of data.analisis_ufc) {
@@ -116,16 +163,23 @@ export class UfcService {
         total_combates: 0,
         combates_con_valor: 0,
         analisis_ufc: [],
-        error: 'No se pudo conectar con el motor de predicción UFC en Python.',
+        error: 'No se pudo conectar con el motor de predicción UFC.',
       };
     }
   }
 
   async escanearTheOddsAPI(): Promise<TheOddsLiveResponse> {
+    const ahoraMs = Date.now();
+    // Cache de 15 minutos para proteger cuota de The-Odds-API
+    if (this.cachedLiveOdds && ahoraMs - this.lastLiveFetch < 15 * 60 * 1000) {
+      this.logger.log('Retornando cuotas UFC en vivo desde caché en memoria.');
+      return this.cachedLiveOdds;
+    }
+
     try {
       this.logger.log('Consultando The-Odds-API en vivo para MMA/UFC...');
       const url = `https://api.the-odds-api.com/v4/sports/mma_mixed_martial_arts/odds/?apiKey=${this.theOddsApiKey}&regions=us,eu&markets=h2h`;
-      const oddsRes = await axios.get(url, { headers: { 'User-Agent': 'ApexAnalytics/1.0' } });
+      const oddsRes = await axios.get(url, { headers: { 'User-Agent': 'ApexAnalytics/1.0' }, timeout: 15000 });
 
       const events = oddsRes.data || [];
       const requestsRemaining = oddsRes.headers['x-requests-remaining'] || 'N/A';
@@ -192,6 +246,9 @@ export class UfcService {
           }
         }
       }
+
+      this.cachedLiveOdds = resultado;
+      this.lastLiveFetch = ahoraMs;
 
       return resultado;
     } catch (error) {
