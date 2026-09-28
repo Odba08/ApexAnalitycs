@@ -196,16 +196,20 @@ export class UfcService {
         };
       }
 
-      // Filtrar únicamente los combates inminentes de este fin de semana / próximos 4 días
+      // Filtrar únicamente combates de UFC de fin de semana (Viernes, Sábado o Domingo UTC)
+      // Excluyendo eventos de mitad de semana (Martes/Miércoles) que corresponden al Contender Series (DWCS)
       const ahora = new Date().getTime();
-      const eventosActivos = events.filter((e: any) => {
+      const eventosFinDeSemana = events.filter((e: any) => {
         if (!e.commence_time) return false;
-        const t = new Date(e.commence_time).getTime();
-        const diffHoras = (t - ahora) / (1000 * 3600);
-        return diffHoras >= -6 && diffHoras <= 168;
+        const d = new Date(e.commence_time);
+        const diffHoras = (d.getTime() - ahora) / (1000 * 3600);
+        if (diffHoras < -6 || diffHoras > 168) return false;
+        const day = d.getUTCDay();
+        // 5 = Viernes, 6 = Sábado, 0 = Domingo
+        return day === 5 || day === 6 || day === 0;
       });
 
-      const listaAProcesar = eventosActivos.length > 0 ? eventosActivos : events;
+      const listaAProcesar = eventosFinDeSemana.length > 0 ? eventosFinDeSemana : events;
 
       // Extraer mejores cuotas por combate
       const peleasPayload: any[] = [];

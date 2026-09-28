@@ -2,6 +2,28 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 
+export interface PropsDeporteUS {
+  spread_line?: number;
+  cover_home_prob?: number;
+  cover_away_prob?: number;
+  runline_home?: string;
+  runline_away?: string;
+  runline_home_prob?: number;
+  runline_away_prob?: number;
+  total_line?: number;
+  over_prob?: number;
+  under_prob?: number;
+  nrfi_prob?: number;
+  yrfi_prob?: number;
+  f5_pick?: string;
+  f5_prob?: number;
+  margen_1_6_prob?: number;
+  margen_7_mas_prob?: number;
+  margen_1_5_prob?: number;
+  margen_6_mas_prob?: number;
+  jugada_clave?: string;
+}
+
 export interface JuegoAnalizado {
   home_team: string;
   away_team: string;
@@ -26,6 +48,7 @@ export interface JuegoAnalizado {
   value_prob?: number;
   value_edge?: number;
   value_side?: 'HOME' | 'AWAY' | null;
+  props?: PropsDeporteUS;
 }
 
 export interface AnalisisUSResponse {

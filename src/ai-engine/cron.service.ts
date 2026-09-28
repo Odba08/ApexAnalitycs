@@ -1006,6 +1006,7 @@ export class ApuestasCronService {
           cuota: favOdds,
           prob: Math.round(favProb),
           spread: j.expected_margin > 0 ? `${j.home_team} +${j.expected_margin}` : `${j.away_team} +${Math.abs(j.expected_margin)}`,
+          prop: j.props?.jugada_clave,
           fecha: fechaStr,
         });
       }
@@ -1042,7 +1043,11 @@ export class ApuestasCronService {
       tier1Bases.slice(0, 4).forEach((t) => {
         msg += `• <b>${t.equipo}</b> (vs ${t.rival})${t.fecha}\n` +
                `  Cuota: <b>${t.cuota}</b> | Probabilidad Modelo: <b>${t.prob}%</b>\n` +
-               `  Spread proyectado: <i>${t.spread} pts</i>\n\n`;
+               `  Spread proyectado: <i>${t.spread} pts</i>\n`;
+        if (t.prop) {
+          msg += `  Prop sugerida: <i>${t.prop}</i>\n`;
+        }
+        msg += `\n`;
       });
 
       if (tier1Bases.length >= 2) {
@@ -1137,17 +1142,28 @@ export class ApuestasCronService {
     }
 
     const div = '──────────────────────────────';
-    let msg = `🏈 <b>NFL: PRONÓSTICOS DE LA JORNADA</b> 🏈\n` +
-              `<i>Probabilidades de victoria, hándicaps y totales estimados</i>\n` +
+    let msg = `🏈 <b>NFL: PRONÓSTICOS Y MERCADOS DE APUESTAS</b> 🏈\n` +
+              `<i>Probabilidades de Moneyline, Spreads de cobertura y Totales</i>\n` +
               `${div}\n\n`;
 
     res.juegos.slice(0, 8).forEach((j, idx) => {
       const fecha = this.formatFechaCorta(j.commence_time);
+      const pr = j.props;
+
       msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>${fecha}\n` +
-             `• Probabilidades: <b>${j.prob_away}%</b> vs <b>${j.prob_home}%</b>\n` +
-             `• Cuotas: ${j.odds_away} (Vis) | ${j.odds_home} (Loc)\n` +
-             `• Hándicap Mercado: <b>${j.book_spread || '0'} pts</b> | Total: <b>${j.book_total || 'N/A'} pts</b>\n` +
-             `• IA Proyecta: <b>${j.expected_margin > 0 ? `Local +${j.expected_margin}` : `Vis +${Math.abs(j.expected_margin)}`} pts</b> | Total IA: <b>${j.expected_total}</b>\n`;
+             `• Moneyline: <b>${j.prob_away}%</b> (${j.odds_away}) vs <b>${j.prob_home}%</b> (${j.odds_home})\n`;
+
+      if (pr) {
+        const spreadTxt = (pr.spread_line ?? 0) > 0 ? `+${pr.spread_line}` : `${pr.spread_line}`;
+        msg += `• Hándicap (${spreadTxt} pts): ${j.home_team} <b>${pr.cover_home_prob}%</b> | ${j.away_team} <b>${pr.cover_away_prob}%</b>\n` +
+               `• Totales (${pr.total_line} pts): Over <b>${pr.over_prob}%</b> | Under <b>${pr.under_prob}%</b> (IA: ${j.expected_total} pts)\n` +
+               `• Margen: Victoria sólida 7+ pts (<b>${pr.margen_7_mas_prob}%</b>) | Juego cerrado 1-6 pts (<b>${pr.margen_1_6_prob}%</b>)\n` +
+               `• Jugada sugerida: <b>${pr.jugada_clave}</b>\n`;
+      } else {
+        msg += `• Hándicap Mercado: <b>${j.book_spread || '0'} pts</b> | Total: <b>${j.book_total || 'N/A'} pts</b>\n` +
+               `• IA Proyecta: <b>${j.expected_margin > 0 ? `Local +${j.expected_margin}` : `Vis +${Math.abs(j.expected_margin)}`} pts</b> | Total IA: <b>${j.expected_total}</b>\n`;
+      }
+
       if (j.has_value) {
         const dogTag = (j.value_prob || 0) < 50 ? ' <i>[⚠️ Underdog +EV]</i>' : ' <i>[✅ Valor]</i>';
         msg += `💎 <i>Ventaja detectada: ${j.value_pick} (+${j.value_edge}%)${dogTag}</i>\n`;
@@ -1250,6 +1266,7 @@ export class ApuestasCronService {
           cuota: favOdds,
           prob: Math.round(favProb),
           total: j.expected_total,
+          prop: j.props?.jugada_clave,
           fecha: fechaStr,
         });
       }
@@ -1286,7 +1303,8 @@ export class ApuestasCronService {
       tier1Bases.slice(0, 4).forEach((t) => {
         msg += `• <b>${t.equipo}</b> (vs ${t.rival})${t.fecha}\n` +
                `  Cuota: <b>${t.cuota}</b> | Probabilidad Modelo: <b>${t.prob}%</b>\n` +
-               `  Carreras esperadas: <i>${t.total}</i>\n\n`;
+               (t.prop ? `  Prop sugerida: <i>${t.prop}</i>\n` : `  Carreras esperadas: <i>${t.total}</i>\n`) +
+               `\n`;
       });
 
       if (tier1Bases.length >= 2) {
@@ -1386,10 +1404,20 @@ export class ApuestasCronService {
 
     res.juegos.slice(0, 8).forEach((j, idx) => {
       const fecha = this.formatFechaCorta(j.commence_time);
+      const pr = j.props;
       msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>${fecha}\n` +
-             `• Probabilidades: <b>${j.prob_away}%</b> vs <b>${j.prob_home}%</b>\n` +
-             `• Cuotas: ${j.odds_away} (Vis) | ${j.odds_home} (Loc)\n` +
-             `• Carreras Proyectadas: <b>${j.expected_total}</b> (Línea: ${j.book_total || 'N/A'})\n`;
+             `• Moneyline: <b>${j.prob_away}%</b> (${j.odds_away}) vs <b>${j.prob_home}%</b> (${j.odds_home})\n`;
+
+      if (pr) {
+        msg += `• Runline (+/- 1.5): ${pr.runline_home} (<b>${pr.runline_home_prob}%</b>) | ${pr.runline_away} (<b>${pr.runline_away_prob}%</b>)\n` +
+               `• Totales (${pr.total_line} carreras): Over <b>${pr.over_prob}%</b> | Under <b>${pr.under_prob}%</b> (IA: ${j.expected_total})\n` +
+               `• 1ra Entrada: NRFI Sin Carreras (<b>${pr.nrfi_prob}%</b>) | YRFI Con Carreras (<b>${pr.yrfi_prob}%</b>)\n` +
+               `• Primeras 5 Entradas (F5): ${pr.f5_pick} (<b>${pr.f5_prob}%</b>)\n` +
+               `• Jugada sugerida: <b>${pr.jugada_clave}</b>\n`;
+      } else {
+        msg += `• Carreras Proyectadas: <b>${j.expected_total}</b> (Línea: ${j.book_total || 'N/A'})\n`;
+      }
+
       if (j.has_value) {
         const dogTag = (j.value_prob || 0) < 50 ? ' <i>[⚠️ Underdog +EV]</i>' : ' <i>[✅ Valor]</i>';
         msg += `💎 <i>Valor detectado: ${j.value_pick} (+${j.value_edge}%)${dogTag}</i>\n`;
@@ -1492,6 +1520,7 @@ export class ApuestasCronService {
           cuota: favOdds,
           prob: Math.round(favProb),
           spread: j.expected_margin > 0 ? `${j.home_team} +${j.expected_margin}` : `${j.away_team} +${Math.abs(j.expected_margin)}`,
+          prop: j.props?.jugada_clave,
           fecha: fechaStr,
         });
       }
@@ -1528,7 +1557,8 @@ export class ApuestasCronService {
       tier1Bases.slice(0, 4).forEach((t) => {
         msg += `• <b>${t.equipo}</b> (vs ${t.rival})${t.fecha}\n` +
                `  Cuota: <b>${t.cuota}</b> | Probabilidad Modelo: <b>${t.prob}%</b>\n` +
-               `  Margen proyectado: <i>${t.spread} pts</i>\n\n`;
+               (t.prop ? `  Prop sugerida: <i>${t.prop}</i>\n` : `  Margen proyectado: <i>${t.spread} pts</i>\n`) +
+               `\n`;
       });
 
       if (tier1Bases.length >= 2) {
@@ -1629,11 +1659,21 @@ export class ApuestasCronService {
 
     res.juegos.slice(0, 8).forEach((j, idx) => {
       const fecha = this.formatFechaCorta(j.commence_time);
+      const pr = j.props;
       msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>${fecha}\n` +
-             `• Probabilidades: <b>${j.prob_away}%</b> vs <b>${j.prob_home}%</b>\n` +
-             `• Cuotas: ${j.odds_away} (Vis) | ${j.odds_home} (Loc)\n` +
-             `• Hándicap: <b>${j.book_spread || '0'} pts</b> | Total: <b>${j.book_total || 'N/A'} pts</b>\n` +
-             `• IA Proyecta: <b>${j.expected_margin > 0 ? `Local +${j.expected_margin}` : `Vis +${Math.abs(j.expected_margin)}`} pts</b> | Total: <b>${j.expected_total}</b>\n`;
+             `• Moneyline: <b>${j.prob_away}%</b> (${j.odds_away}) vs <b>${j.prob_home}%</b> (${j.odds_home})\n`;
+
+      if (pr) {
+        const spreadTxt = (pr.spread_line ?? 0) > 0 ? `+${pr.spread_line}` : `${pr.spread_line}`;
+        msg += `• Hándicap (${spreadTxt} pts): ${j.home_team} <b>${pr.cover_home_prob}%</b> | ${j.away_team} <b>${pr.cover_away_prob}%</b>\n` +
+               `• Totales (${pr.total_line} pts): Over <b>${pr.over_prob}%</b> | Under <b>${pr.under_prob}%</b> (IA: ${j.expected_total} pts)\n` +
+               `• Margen: Victoria sólida 6+ pts (<b>${pr.margen_6_mas_prob}%</b>) | Final apretado 1-5 pts (<b>${pr.margen_1_5_prob}%</b>)\n` +
+               `• Jugada sugerida: <b>${pr.jugada_clave}</b>\n`;
+      } else {
+        msg += `• Hándicap: <b>${j.book_spread || '0'} pts</b> | Total: <b>${j.book_total || 'N/A'} pts</b>\n` +
+               `• IA Proyecta: <b>${j.expected_margin > 0 ? `Local +${j.expected_margin}` : `Vis +${Math.abs(j.expected_margin)}`} pts</b> | Total: <b>${j.expected_total}</b>\n`;
+      }
+
       if (j.has_value) {
         const dogTag = (j.value_prob || 0) < 50 ? ' <i>[⚠️ Underdog +EV]</i>' : ' <i>[✅ Valor]</i>';
         msg += `💎 <i>Valor detectado: ${j.value_pick} (+${j.value_edge}%)${dogTag}</i>\n`;
