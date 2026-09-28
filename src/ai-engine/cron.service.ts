@@ -9,6 +9,7 @@ import axios from 'axios';
 
 import { F1Service } from './f1.service';
 import { UfcService } from './ufc.service';
+import { UsSportsService } from './us-sports.service';
 
 @Update()
 @Injectable()
@@ -29,6 +30,7 @@ export class ApuestasCronService {
     private readonly sportsApi: SportsApiService,
     private readonly f1Service: F1Service,
     private readonly ufcService: UfcService,
+    private readonly usSportsService: UsSportsService,
   ) {}
 
   // Cronjob cada 10 minutos para mantener el servicio activo en Render
@@ -219,6 +221,11 @@ export class ApuestasCronService {
             Markup.button.callback('⚽ FÚTBOL', 'menu_futbol'),
             Markup.button.callback('🏎️ FÓRMULA 1', 'menu_f1'),
             Markup.button.callback('🥊 UFC (+EV)', 'menu_ufc'),
+          ],
+          [
+            Markup.button.callback('🏈 NFL', 'menu_nfl'),
+            Markup.button.callback('⚾ MLB', 'menu_mlb'),
+            Markup.button.callback('🏀 NBA', 'menu_nba'),
           ],
           [
             Markup.button.callback('🎯 Top Apuestas Globales', 'menu_hoy'),
@@ -886,6 +893,399 @@ export class ApuestasCronService {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🔙 Volver al Menú UFC', 'menu_ufc')],
+      ]),
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // MENÚ Y ACCIONES NFL (FÚTBOL AMERICANO)
+  // ------------------------------------------------------------------
+
+  @Action('menu_nfl')
+  async accionMenuNFL(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+
+    await ctx.reply(
+      '🏈 <b>CENTRO CUANTITATIVO NFL (FÚTBOL AMERICANO)</b> 🏈\n\n' +
+        'Modelos de Elo dinámico, margen de puntos esperado (Spread), líneas Over/Under y ventaja matemática (+EV).\n\n' +
+        'Selecciona una opción:',
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_nfl_valor')],
+          [Markup.button.callback('📋 Jornada Completa (Cuotas & Hándicaps)', 'opt_nfl_jornada')],
+          [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_nfl_live')],
+          [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
+        ]),
+      },
+    );
+  }
+
+  @Action('opt_nfl_valor')
+  async accionNFLValor(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Escaneando cuotas y calculando valor cuantitativo (+EV) en NFL...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.usSportsService.analizarDeporte('nfl');
+    if (res.error || !res.juegos) {
+      await ctx.reply(`⚠️ ${res.error || 'No se pudieron consultar las cuotas de NFL.'}`);
+      return;
+    }
+
+    const conValor = res.juegos.filter((j) => j.has_value);
+    const div = '──────────────────────────────';
+    let msg = `🏈 <b>NFL: APUESTAS CON VALOR (+EV)</b> 🏈\n` +
+              `<i>Oportunidades con ventaja matemática sobre el mercado</i>\n` +
+              `${div}\n\n`;
+
+    if (conValor.length === 0) {
+      msg += `<i>No se detectaron ventajas matemáticas significativas (Edge >= +3.0%) en esta jornada de NFL. Todas las cuotas están equilibradas.</i>\n`;
+    } else {
+      conValor.slice(0, 6).forEach((j, idx) => {
+        msg += `<b>${idx + 1}. ${j.away_team} en ${j.home_team}</b>\n` +
+               `• <b>Apuesta sugerida:</b> ${j.value_pick}\n` +
+               `• Cuota disponible: <b>${j.value_odds}</b> | Probabilidad IA: <b>${j.value_prob}%</b>\n` +
+               `• Ventaja matemática (+EV): <b>+${j.value_edge}%</b>\n` +
+               `• Margen proyectado: <b>${j.expected_margin > 0 ? `Local por +${j.expected_margin}` : `Visitante por +${Math.abs(j.expected_margin)}`} pts</b>\n` +
+               `• Total proyectado IA: <b>${j.expected_total} pts</b> (Línea de casa: ${j.book_total || 'N/A'})\n` +
+               `${div}\n`;
+      });
+    }
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('📋 Ver Jornada Completa', 'opt_nfl_jornada')],
+        [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_nfl_live')],
+        [Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
+      ]),
+    });
+  }
+
+  @Action('opt_nfl_jornada')
+  async accionNFLJornada(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Cargando partidos de la jornada NFL...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.usSportsService.analizarDeporte('nfl');
+    if (res.error || !res.juegos) {
+      await ctx.reply(`⚠️ ${res.error || 'No se pudieron consultar los partidos de NFL.'}`);
+      return;
+    }
+
+    const div = '──────────────────────────────';
+    let msg = `🏈 <b>NFL: PRONÓSTICOS DE LA JORNADA</b> 🏈\n` +
+              `<i>Probabilidades de victoria, hándicaps y totales estimados</i>\n` +
+              `${div}\n\n`;
+
+    res.juegos.slice(0, 8).forEach((j, idx) => {
+      const fecha = j.commence_time ? ` [${j.commence_time.slice(5, 10)}]` : '';
+      msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>${fecha}\n` +
+             `• Probabilidades: <b>${j.prob_away}%</b> vs <b>${j.prob_home}%</b>\n` +
+             `• Cuotas: ${j.odds_away} (Vis) | ${j.odds_home} (Loc)\n` +
+             `• Hándicap Mercado: <b>${j.book_spread || '0'} pts</b> | Total: <b>${j.book_total || 'N/A'} pts</b>\n` +
+             `• IA Proyecta: <b>${j.expected_margin > 0 ? `Local +${j.expected_margin}` : `Vis +${Math.abs(j.expected_margin)}`} pts</b> | Total IA: <b>${j.expected_total}</b>\n`;
+      if (j.has_value) {
+        msg += `💎 <i>Ventaja detectada: ${j.value_pick} (+${j.value_edge}%)</i>\n`;
+      }
+      msg += `${div}\n`;
+    });
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('💎 Solo Apuestas +EV', 'opt_nfl_valor')],
+        [Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
+      ]),
+    });
+  }
+
+  @Action('opt_nfl_live')
+  async accionNFLLive(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Consultando marcadores en vivo vía ESPN API...</b>', { parse_mode: 'HTML' });
+
+    const marcadores = await this.usSportsService.obtenerMarcadoresESPN('nfl');
+    const div = '──────────────────────────────';
+    let msg = `🏈 <b>MARCADORES EN VIVO NFL (ESPN OFICIAL)</b> 🏈\n${div}\n\n`;
+
+    if (marcadores.length === 0) {
+      msg += `<i>No hay partidos de NFL en disputa en este momento.</i>\n`;
+    } else {
+      marcadores.slice(0, 10).forEach((m) => {
+        const liveIcon = m.enVivo ? '🔴 <b>EN VIVO</b>' : '⏱️';
+        msg += `<b>${m.visitante} ${m.puntosVisitante} - ${m.puntosLocal} ${m.local}</b>\n` +
+               `• Estado: ${liveIcon} <i>${m.estado}</i>\n` +
+               `${div}\n`;
+      });
+    }
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🔄 Actualizar Marcadores', 'opt_nfl_live')],
+        [Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
+      ]),
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // MENÚ Y ACCIONES MLB (BÉISBOL)
+  // ------------------------------------------------------------------
+
+  @Action('menu_mlb')
+  async accionMenuMLB(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+
+    await ctx.reply(
+      '⚾ <b>CENTRO CUANTITATIVO MLB (BÉISBOL)</b> ⚾\n\n' +
+        'Modelos de efectividad, Teorema Pitagórico de Bill James, Runlines (+/- 1.5) y Totales de Carreras.\n\n' +
+        'Selecciona una opción:',
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_mlb_valor')],
+          [Markup.button.callback('📋 Cartelera Completa (Moneyline & Runline)', 'opt_mlb_cartelera')],
+          [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_mlb_live')],
+          [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
+        ]),
+      },
+    );
+  }
+
+  @Action('opt_mlb_valor')
+  async accionMLBValor(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Escaneando cuotas y calculando valor en MLB...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.usSportsService.analizarDeporte('mlb');
+    if (res.error || !res.juegos) {
+      await ctx.reply(`⚠️ ${res.error || 'No se pudieron consultar las cuotas de MLB.'}`);
+      return;
+    }
+
+    const conValor = res.juegos.filter((j) => j.has_value);
+    const div = '──────────────────────────────';
+    let msg = `⚾ <b>MLB: APUESTAS CON VALOR (+EV)</b> ⚾\n` +
+              `<i>Oportunidades con ventaja matemática sobre el mercado</i>\n` +
+              `${div}\n\n`;
+
+    if (conValor.length === 0) {
+      msg += `<i>No se detectaron ineficiencias con ventaja >= +3.0% en esta cartelera de MLB.</i>\n`;
+    } else {
+      conValor.slice(0, 6).forEach((j, idx) => {
+        msg += `<b>${idx + 1}. ${j.away_team} vs ${j.home_team}</b>\n` +
+               `• <b>Selección con valor:</b> ${j.value_pick}\n` +
+               `• Cuota: <b>${j.value_odds}</b> | Probabilidad IA: <b>${j.value_prob}%</b>\n` +
+               `• Ventaja matemática (+EV): <b>+${j.value_edge}%</b>\n` +
+               `• Total de carreras proyectado: <b>${j.expected_total}</b> (Línea: ${j.book_total || 'N/A'})\n` +
+               `${div}\n`;
+      });
+    }
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera')],
+        [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_mlb_live')],
+        [Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
+      ]),
+    });
+  }
+
+  @Action('opt_mlb_cartelera')
+  async accionMLBCartelera(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Cargando cartelera completa de MLB...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.usSportsService.analizarDeporte('mlb');
+    if (res.error || !res.juegos) {
+      await ctx.reply(`⚠️ ${res.error || 'No se pudieron consultar los partidos de MLB.'}`);
+      return;
+    }
+
+    const div = '──────────────────────────────';
+    let msg = `⚾ <b>MLB: CARTELERA DE BÉISBOL</b> ⚾\n` +
+              `<i>Pronósticos de victoria y líneas de carreras</i>\n` +
+              `${div}\n\n`;
+
+    res.juegos.slice(0, 8).forEach((j, idx) => {
+      msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>\n` +
+             `• Probabilidades: <b>${j.prob_away}%</b> vs <b>${j.prob_home}%</b>\n` +
+             `• Cuotas: ${j.odds_away} (Vis) | ${j.odds_home} (Loc)\n` +
+             `• Carreras Proyectadas: <b>${j.expected_total}</b> (Línea: ${j.book_total || 'N/A'})\n`;
+      if (j.has_value) {
+        msg += `💎 <i>Valor detectado: ${j.value_pick} (+${j.value_edge}%)</i>\n`;
+      }
+      msg += `${div}\n`;
+    });
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('💎 Solo Apuestas +EV', 'opt_mlb_valor')],
+        [Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
+      ]),
+    });
+  }
+
+  @Action('opt_mlb_live')
+  async accionMLBLive(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Consultando pizarras de MLB vía ESPN...</b>', { parse_mode: 'HTML' });
+
+    const marcadores = await this.usSportsService.obtenerMarcadoresESPN('mlb');
+    const div = '──────────────────────────────';
+    let msg = `⚾ <b>MARCADORES EN VIVO MLB (ESPN OFICIAL)</b> ⚾\n${div}\n\n`;
+
+    if (marcadores.length === 0) {
+      msg += `<i>No hay juegos de MLB en disputa en este momento.</i>\n`;
+    } else {
+      marcadores.slice(0, 10).forEach((m) => {
+        const liveIcon = m.enVivo ? '🔴 <b>EN VIVO</b>' : '⏱️';
+        msg += `<b>${m.visitante} ${m.puntosVisitante} - ${m.puntosLocal} ${m.local}</b>\n` +
+               `• Estado: ${liveIcon} <i>${m.estado}</i>\n` +
+               `${div}\n`;
+      });
+    }
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🔄 Actualizar Pizarras', 'opt_mlb_live')],
+        [Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
+      ]),
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // MENÚ Y ACCIONES NBA (BÁSQUETBOL)
+  // ------------------------------------------------------------------
+
+  @Action('menu_nba')
+  async accionMenuNBA(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+
+    await ctx.reply(
+      '🏀 <b>CENTRO CUANTITATIVO NBA (BÁSQUETBOL)</b> 🏀\n\n' +
+        'Modelos de ritmo (Pace), rating ofensivo/defensivo, hándicaps de puntos y líneas Over/Under.\n\n' +
+        'Selecciona una opción:',
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_nba_valor')],
+          [Markup.button.callback('📋 Próximos Partidos (Cuotas & Hándicaps)', 'opt_nba_partidos')],
+          [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_nba_live')],
+          [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
+        ]),
+      },
+    );
+  }
+
+  @Action('opt_nba_valor')
+  async accionNBAValor(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Escaneando cuotas y calculando valor en NBA...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.usSportsService.analizarDeporte('nba');
+    if (res.error || !res.juegos) {
+      await ctx.reply(`⚠️ ${res.error || 'No se pudieron consultar las cuotas de NBA.'}`);
+      return;
+    }
+
+    const conValor = res.juegos.filter((j) => j.has_value);
+    const div = '──────────────────────────────';
+    let msg = `🏀 <b>NBA: APUESTAS CON VALOR (+EV)</b> 🏀\n` +
+              `<i>Oportunidades con ventaja matemática sobre el mercado</i>\n` +
+              `${div}\n\n`;
+
+    if (conValor.length === 0) {
+      msg += `<i>No se detectaron ventajas matemáticas significativas (Edge >= +3.0%) en esta cartelera de NBA.</i>\n`;
+    } else {
+      conValor.slice(0, 6).forEach((j, idx) => {
+        msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>\n` +
+               `• <b>Apuesta sugerida:</b> ${j.value_pick}\n` +
+               `• Cuota: <b>${j.value_odds}</b> | Probabilidad IA: <b>${j.value_prob}%</b>\n` +
+               `• Ventaja matemática (+EV): <b>+${j.value_edge}%</b>\n` +
+               `• Margen proyectado: <b>${j.expected_margin > 0 ? `Local +${j.expected_margin}` : `Vis +${Math.abs(j.expected_margin)}`} pts</b>\n` +
+               `• Total de puntos proyectado: <b>${j.expected_total} pts</b> (Línea: ${j.book_total || 'N/A'})\n` +
+               `${div}\n`;
+      });
+    }
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('📋 Ver Próximos Partidos', 'opt_nba_partidos')],
+        [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_nba_live')],
+        [Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
+      ]),
+    });
+  }
+
+  @Action('opt_nba_partidos')
+  async accionNBAPartidos(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Cargando partidos de la NBA...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.usSportsService.analizarDeporte('nba');
+    if (res.error || !res.juegos) {
+      await ctx.reply(`⚠️ ${res.error || 'No se pudieron consultar los partidos de NBA.'}`);
+      return;
+    }
+
+    const div = '──────────────────────────────';
+    let msg = `🏀 <b>NBA: PRONÓSTICOS Y LÍNEAS</b> 🏀\n` +
+              `<i>Probabilidades de victoria y hándicaps</i>\n` +
+              `${div}\n\n`;
+
+    res.juegos.slice(0, 8).forEach((j, idx) => {
+      const fecha = j.commence_time ? ` [${j.commence_time.slice(5, 10)}]` : '';
+      msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>${fecha}\n` +
+             `• Probabilidades: <b>${j.prob_away}%</b> vs <b>${j.prob_home}%</b>\n` +
+             `• Cuotas: ${j.odds_away} (Vis) | ${j.odds_home} (Loc)\n` +
+             `• Hándicap: <b>${j.book_spread || '0'} pts</b> | Total: <b>${j.book_total || 'N/A'} pts</b>\n` +
+             `• IA Proyecta: <b>${j.expected_margin > 0 ? `Local +${j.expected_margin}` : `Vis +${Math.abs(j.expected_margin)}`} pts</b> | Total: <b>${j.expected_total}</b>\n`;
+      if (j.has_value) {
+        msg += `💎 <i>Valor detectado: ${j.value_pick} (+${j.value_edge}%)</i>\n`;
+      }
+      msg += `${div}\n`;
+    });
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('💎 Solo Apuestas +EV', 'opt_nba_valor')],
+        [Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
+      ]),
+    });
+  }
+
+  @Action('opt_nba_live')
+  async accionNBALive(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Consultando marcadores de NBA vía ESPN...</b>', { parse_mode: 'HTML' });
+
+    const marcadores = await this.usSportsService.obtenerMarcadoresESPN('nba');
+    const div = '──────────────────────────────';
+    let msg = `🏀 <b>MARCADORES EN VIVO NBA (ESPN OFICIAL)</b> 🏀\n${div}\n\n`;
+
+    if (marcadores.length === 0) {
+      msg += `<i>No hay partidos de NBA en juego en este momento.</i>\n`;
+    } else {
+      marcadores.slice(0, 10).forEach((m) => {
+        const liveIcon = m.enVivo ? '🔴 <b>EN VIVO</b>' : '⏱️';
+        msg += `<b>${m.visitante} ${m.puntosVisitante} - ${m.puntosLocal} ${m.local}</b>\n` +
+               `• Estado: ${liveIcon} <i>${m.estado}</i>\n` +
+               `${div}\n`;
+      });
+    }
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🔄 Actualizar Marcadores', 'opt_nba_live')],
+        [Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
       ]),
     });
   }
