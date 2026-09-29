@@ -358,17 +358,56 @@ export class ApuestasCronService {
   private async obtenerContextoResumidoDeportes(promptUsuario: string = ''): Promise<string> {
     const lineas: string[] = [];
     const pLower = promptUsuario.toLowerCase();
-    const esUFC = pLower.includes('ufc') || pLower.includes('mma') || pLower.includes('pelea') || pLower.includes('combate') || pLower.includes('peleador');
-    const esMLB = pLower.includes('mlb') || pLower.includes('beisbol') || pLower.includes('béisbol') || pLower.includes('carrera') || pLower.includes('runline') || pLower.includes('inning');
-    const esNFL = pLower.includes('nfl') || pLower.includes('americano') || pLower.includes('touchdown');
-    const esNBA = pLower.includes('nba') || pLower.includes('basquet') || pLower.includes('básquet') || pLower.includes('baloncesto');
+
+    // Palabras clave y nombres de peleadores conocidos para UFC
+    const ufcKeywords = [
+      'ufc', 'mma', 'pelea', 'combate', 'peleador', 'round', 'asaltos', 'ko', 'tko', 'sumision', 'sumisión',
+      'octagono', 'octágono', 'vettori', 'talbott', 'mcgee', 'mcghee', 'ribovics', 'pinas', 'soldic',
+      'naurdiev', 'pulyaev', 'dos anjos', 'hernandez', 'khaos', 'nolan', 'green', 'figueiredo',
+    ];
+    const esUFC = ufcKeywords.some((k) => pLower.includes(k));
+
+    // Palabras clave y equipos para MLB
+    const mlbKeywords = [
+      'mlb', 'beisbol', 'béisbol', 'carrera', 'runline', 'inning', 'pitcher', 'jonron', 'jonrón',
+      'astros', 'yankees', 'dodgers', 'phillies', 'red sox', 'mets', 'braves', 'cubs', 'padres',
+      'orioles', 'twins', 'guardians', 'rangers', 'rays', 'blue jays', 'diamondbacks', 'mariners',
+      'brewers', 'cardinals', 'tigers', 'reds', 'white sox', 'rockies', 'royals', 'marlins', 'pirates',
+      'nationals', 'athletics', 'angels',
+    ];
+    const esMLB = mlbKeywords.some((k) => pLower.includes(k));
+
+    // Palabras clave y equipos para NFL
+    const nflKeywords = [
+      'nfl', 'americano', 'touchdown', 'quarterback', 'spread', 'chiefs', 'eagles', '49ers', 'cowboys',
+      'ravens', 'bills', 'lions', 'packers', 'texans', 'dolphins', 'steelers', 'bengals', 'browns',
+      'jets', 'patriots', 'raiders', 'chargers', 'broncos', 'vikings', 'bears', 'seahawks', 'rams',
+      'saints', 'falcons', 'buccaneers', 'panthers', 'titans', 'colts', 'jaguars', 'commanders',
+    ];
+    const esNFL = nflKeywords.some((k) => pLower.includes(k));
+
+    // Palabras clave y equipos para NBA
+    const nbaKeywords = [
+      'nba', 'basquet', 'básquet', 'baloncesto', 'canasta', 'lakers', 'celtics', 'warriors', 'bucks',
+      'nuggets', 'suns', 'heat', 'clippers', 'sixers', '76ers', 'knicks', 'mavericks', 'mavs',
+      'timberwolves', 'wolves', 'thunder', 'pacers', 'cavaliers', 'cavs', 'pelicans', 'magic',
+      'hawks', 'bulls', 'raptors', 'nets', 'spurs', 'rockets', 'grizzlies', 'blazers', 'jazz',
+      'hornets', 'pistons', 'wizards',
+    ];
+    const esNBA = nbaKeywords.some((k) => pLower.includes(k));
+
+    const algunoEspecifico = esUFC || esMLB || esNFL || esNBA;
+
+    if (algunoEspecifico) {
+      lineas.push('⚠️ INSTRUCCIÓN DE ENFOQUE QUIRÚRGICO: El usuario pregunta por un peleador, equipo o duelo concreto. RESPONDE ÚNICAMENTE sobre ese tema en 2 a 4 líneas directas. PROHIBIDO enviar la cartelera completa o los 3 boletos a menos que los haya pedido explícitamente.\n');
+    }
 
     // 1. Contexto MLB
-    if (esMLB || (!esUFC && !esNFL && !esNBA)) {
+    if (esMLB || !algunoEspecifico) {
       try {
         const mlb = await this.usSportsService.analizarDeporte('mlb');
         if (mlb && mlb.juegos && mlb.juegos.length > 0) {
-          lineas.push('--- MLB (CARTELERA COMPLETA DE BÉISBOL) ---');
+          lineas.push('--- MLB (BÉISBOL) ---');
           const maxJuegos = esMLB ? 16 : 5;
           mlb.juegos.slice(0, maxJuegos).forEach((j, idx) => {
             const pr = j.props;
@@ -389,11 +428,11 @@ export class ApuestasCronService {
     }
 
     // 2. Contexto UFC
-    if (esUFC || (!esMLB && !esNFL && !esNBA)) {
+    if (esUFC || !algunoEspecifico) {
       try {
         const ufc = await this.ufcService.obtenerCarteleraUFC();
         if (ufc && ufc.analisis_ufc && ufc.analisis_ufc.length > 0) {
-          lineas.push('\n--- UFC (CARTELERA COMPLETA DE ARTES MARCIALES MIXTAS) ---');
+          lineas.push('\n--- UFC (ARTES MARCIALES MIXTAS) ---');
           const maxPeleas = esUFC ? 16 : 5;
           ufc.analisis_ufc.slice(0, maxPeleas).forEach((c, idx) => {
             const isRedFav = c.prob_red >= c.prob_blue;
@@ -413,7 +452,7 @@ export class ApuestasCronService {
     }
 
     // 3. Contexto NFL
-    if (esNFL || (!esUFC && !esMLB && !esNBA)) {
+    if (esNFL || !algunoEspecifico) {
       try {
         const nfl = await this.usSportsService.analizarDeporte('nfl');
         if (nfl && nfl.juegos && nfl.juegos.length > 0) {
@@ -438,7 +477,7 @@ export class ApuestasCronService {
     }
 
     // 4. Contexto NBA
-    if (esNBA || (!esUFC && !esMLB && !esNFL)) {
+    if (esNBA || !algunoEspecifico) {
       try {
         const nba = await this.usSportsService.analizarDeporte('nba');
         if (nba && nba.juegos && nba.juegos.length > 0) {
@@ -482,52 +521,72 @@ export class ApuestasCronService {
       const respuesta = await this.geminiService.responderPreguntaUsuario(text, contexto);
 
       const pLower = text.toLowerCase();
-      const esUFC = pLower.includes('ufc') || pLower.includes('mma') || pLower.includes('pelea') || pLower.includes('combate');
-      const esMLB = pLower.includes('mlb') || pLower.includes('beisbol') || pLower.includes('béisbol') || pLower.includes('carrera') || pLower.includes('runline');
-      const esNFL = pLower.includes('nfl') || pLower.includes('americano');
-      const esNBA = pLower.includes('nba') || pLower.includes('basquet') || pLower.includes('básquet');
+      const esUFC = ['ufc', 'mma', 'pelea', 'combate', 'peleador', 'mcgee', 'mcghee', 'vettori', 'talbott'].some((k) => pLower.includes(k));
+      const esMLB = ['mlb', 'beisbol', 'béisbol', 'carrera', 'runline', 'inning', 'astros', 'yankees', 'dodgers'].some((k) => pLower.includes(k));
+      const esNFL = ['nfl', 'americano', 'touchdown', 'chiefs', 'eagles', '49ers'].some((k) => pLower.includes(k));
+      const esNBA = ['nba', 'basquet', 'básquet', 'baloncesto', 'lakers', 'celtics', 'warriors'].some((k) => pLower.includes(k));
 
       const btns: any[] = [];
       if (esMLB) {
         btns.push([
           Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'),
-          Markup.button.callback('🟡 Multiplicador (x3)', 'opt_mlb_multi'),
+          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi'),
         ]);
         btns.push([
-          Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_mlb_bomba'),
-          Markup.button.callback('🎯 Ver 3 Boletos MLB', 'opt_mlb_estrategia'),
+          Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'),
+          Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_mlb_estrategia'),
+        ]);
+        btns.push([
+          Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera'),
+          Markup.button.callback('🔙 Menú MLB', 'menu_mlb'),
         ]);
       } else if (esUFC) {
         btns.push([
           Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'),
-          Markup.button.callback('🟡 Multiplicador (x3)', 'opt_ufc_multi'),
+          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi'),
         ]);
         btns.push([
-          Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_ufc_bomba'),
-          Markup.button.callback('🎯 Ver 3 Boletos UFC', 'opt_ufc_estrategia'),
+          Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'),
+          Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_ufc_estrategia'),
+        ]);
+        btns.push([
+          Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'),
+          Markup.button.callback('🔙 Menú UFC', 'menu_ufc'),
         ]);
       } else if (esNFL) {
         btns.push([
           Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'),
-          Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nfl_multi'),
+          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi'),
         ]);
         btns.push([
-          Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_nfl_bomba'),
-          Markup.button.callback('🎯 Ver 3 Boletos NFL', 'opt_nfl_estrategia'),
+          Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'),
+          Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nfl_estrategia'),
+        ]);
+        btns.push([
+          Markup.button.callback('📋 Cartelera Completa', 'opt_nfl_jornada'),
+          Markup.button.callback('🔙 Menú NFL', 'menu_nfl'),
         ]);
       } else if (esNBA) {
         btns.push([
           Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'),
-          Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nba_multi'),
+          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi'),
         ]);
         btns.push([
-          Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_nba_bomba'),
-          Markup.button.callback('🎯 Ver 3 Boletos NBA', 'opt_nba_estrategia'),
+          Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'),
+          Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nba_estrategia'),
+        ]);
+        btns.push([
+          Markup.button.callback('📋 Cartelera Completa', 'opt_nba_partidos'),
+          Markup.button.callback('🔙 Menú NBA', 'menu_nba'),
         ]);
       } else {
         btns.push([
-          Markup.button.callback('🎯 Sistema 3 Boletos', 'menu_boletos_hoy'),
-          Markup.button.callback('⚾ Boletos MLB', 'opt_mlb_estrategia'),
+          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'),
+          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi'),
+        ]);
+        btns.push([
+          Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'),
+          Markup.button.callback('🎯 Boletos MLB', 'opt_mlb_estrategia'),
         ]);
         btns.push([
           Markup.button.callback('🥊 Boletos UFC', 'opt_ufc_estrategia'),
@@ -536,11 +595,12 @@ export class ApuestasCronService {
       }
       btns.push([Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')]);
 
-      await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI</b>\n\n${respuesta}`, {
-        parse_mode: 'Markdown',
+      const respuestaLimpia = this.geminiService.sanitizarParaTelegram(respuesta);
+      await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI</b>\n\n${respuestaLimpia}`, {
+        parse_mode: 'HTML',
         ...Markup.inlineKeyboard(btns),
       }).catch(async () => {
-        await ctx.reply(`🧠 DICTAMEN GEMINI AI:\n\n${respuesta}`, {
+        await ctx.reply(`🧠 DICTAMEN GEMINI AI:\n\n${respuesta.replace(/[*#]/g, '')}`, {
           ...Markup.inlineKeyboard(btns),
         });
       });
@@ -990,27 +1050,26 @@ export class ApuestasCronService {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
+            Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_ufc'),
+          ],
+          [
             Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'),
             Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi'),
           ],
           [
-            Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_ufc_bomba'),
-            Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_ufc'),
-          ],
-          [
-            Markup.button.callback('🎯 Ver los 3 Boletos Juntos', 'opt_ufc_estrategia'),
+            Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'),
+            Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_ufc_estrategia'),
           ],
           [
             Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'),
+          ],
+          [
+            Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_ufc_valor'),
             Markup.button.callback('🎯 Asaltos & Métodos', 'opt_ufc_props_detail'),
           ],
           [
-            Markup.button.callback('🏆 Apuestas con Valor (+EV)', 'opt_ufc_valor'),
-            Markup.button.callback('📡 Escáner en Vivo (+EV)', 'opt_ufc_the_odds'),
-          ],
-          [
             Markup.button.callback('📊 Ventajas Físicas', 'opt_ufc_stats'),
-            Markup.button.callback('🔄 Actualizar Stats', 'opt_ufc_sync_greco'),
+            Markup.button.callback('📡 Escáner en Vivo (+EV)', 'opt_ufc_the_odds'),
           ],
           [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
         ]),
@@ -1028,7 +1087,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟡 Multiplicador (x3)', 'opt_ufc_multi'), Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba')],
+        [Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi'), Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba')],
         [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_ufc_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_ufc')],
         [Markup.button.callback('🔙 Menú UFC', 'menu_ufc')],
       ]),
@@ -1062,7 +1121,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_ufc_multi')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi')],
         [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_ufc_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_ufc')],
         [Markup.button.callback('🔙 Menú UFC', 'menu_ufc')],
       ]),
@@ -1079,8 +1138,8 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Ver Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Ver Multiplicador', 'opt_ufc_multi')],
-        [Markup.button.callback('💣 Ver Boleto Bomba', 'opt_ufc_bomba'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_ufc')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador', 'opt_ufc_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_ufc')],
         [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'), Markup.button.callback('🔙 Menú UFC', 'menu_ufc')],
       ]),
     });
@@ -1111,19 +1170,20 @@ export class ApuestasCronService {
     }).join('\n');
 
     const dictamen = await this.geminiService.analizarCartelera('UFC', carteleraTexto);
+    const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>DICTAMEN QUIRÚRGICO GEMINI AI | UFC</b>\n\n${dictamen}`, {
-      parse_mode: 'Markdown',
+    await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI | UFC</b>\n\n${dictamenLimpio}`, {
+      parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_ufc_multi')],
-        [Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'), Markup.button.callback('🎯 Los 3 Boletos', 'opt_ufc_estrategia')],
-        [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'), Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'), Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_ufc_estrategia')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'), Markup.button.callback('🔙 Menú UFC', 'menu_ufc')],
       ]),
     }).catch(async () => {
-      await ctx.reply(`🧠 DICTAMEN GEMINI AI | UFC:\n\n${dictamen}`, {
+      await ctx.reply(`🧠 DICTAMEN GEMINI AI | UFC:\n\n${dictamen.replace(/[*#]/g, '')}`, {
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_ufc_multi')],
-          [Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'), Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi')],
+          [Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'), Markup.button.callback('🔙 Menú UFC', 'menu_ufc')],
         ]),
       });
     });
@@ -1440,18 +1500,18 @@ export class ApuestasCronService {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
+            Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nfl'),
+          ],
+          [
             Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'),
             Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi'),
           ],
           [
-            Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_nfl_bomba'),
-            Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nfl'),
+            Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'),
+            Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nfl_estrategia'),
           ],
           [
-            Markup.button.callback('🎯 Ver los 3 Boletos Juntos', 'opt_nfl_estrategia'),
-          ],
-          [
-            Markup.button.callback('📋 Jornada Completa (Cuotas & Hándicaps)', 'opt_nfl_jornada'),
+            Markup.button.callback('📋 Cartelera Completa', 'opt_nfl_jornada'),
           ],
           [
             Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_nfl_valor'),
@@ -1473,7 +1533,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nfl_multi'), Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba')],
+        [Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi'), Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba')],
         [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_nfl_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nfl')],
         [Markup.button.callback('🔙 Menú NFL', 'menu_nfl')],
       ]),
@@ -1507,7 +1567,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nfl_multi')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi')],
         [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_nfl_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nfl')],
         [Markup.button.callback('🔙 Menú NFL', 'menu_nfl')],
       ]),
@@ -1524,9 +1584,9 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Ver Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Ver Multiplicador', 'opt_nfl_multi')],
-        [Markup.button.callback('💣 Ver Boleto Bomba', 'opt_nfl_bomba'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nfl')],
-        [Markup.button.callback('📋 Jornada Completa', 'opt_nfl_jornada'), Markup.button.callback('🔙 Menú NFL', 'menu_nfl')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador', 'opt_nfl_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nfl')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_nfl_jornada'), Markup.button.callback('🔙 Menú NFL', 'menu_nfl')],
       ]),
     });
   }
@@ -1556,19 +1616,20 @@ export class ApuestasCronService {
     }).join('\n');
 
     const dictamen = await this.geminiService.analizarCartelera('NFL', carteleraTexto);
+    const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>DICTAMEN QUIRÚRGICO GEMINI AI | NFL</b>\n\n${dictamen}`, {
-      parse_mode: 'Markdown',
+    await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI | NFL</b>\n\n${dictamenLimpio}`, {
+      parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nfl_multi')],
-        [Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'), Markup.button.callback('🎯 Los 3 Boletos', 'opt_nfl_estrategia')],
-        [Markup.button.callback('📋 Jornada Completa', 'opt_nfl_jornada'), Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'), Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nfl_estrategia')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_nfl_jornada'), Markup.button.callback('🔙 Menú NFL', 'menu_nfl')],
       ]),
     }).catch(async () => {
-      await ctx.reply(`🧠 DICTAMEN GEMINI AI | NFL:\n\n${dictamen}`, {
+      await ctx.reply(`🧠 DICTAMEN GEMINI AI | NFL:\n\n${dictamen.replace(/[*#]/g, '')}`, {
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nfl_multi')],
-          [Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'), Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
+          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi')],
+          [Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'), Markup.button.callback('🔙 Menú NFL', 'menu_nfl')],
         ]),
       });
     });
@@ -1733,18 +1794,18 @@ export class ApuestasCronService {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
+            Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_mlb'),
+          ],
+          [
             Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'),
             Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi'),
           ],
           [
-            Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_mlb_bomba'),
-            Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_mlb'),
+            Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'),
+            Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_mlb_estrategia'),
           ],
           [
-            Markup.button.callback('🎯 Ver los 3 Boletos Juntos', 'opt_mlb_estrategia'),
-          ],
-          [
-            Markup.button.callback('📋 Cartelera Completa (Moneyline & Runline)', 'opt_mlb_cartelera'),
+            Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera'),
           ],
           [
             Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_mlb_valor'),
@@ -1766,7 +1827,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟡 Multiplicador (x3)', 'opt_mlb_multi'), Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba')],
+        [Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi'), Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba')],
         [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_mlb_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_mlb')],
         [Markup.button.callback('🔙 Menú MLB', 'menu_mlb')],
       ]),
@@ -1800,7 +1861,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_mlb_multi')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi')],
         [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_mlb_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_mlb')],
         [Markup.button.callback('🔙 Menú MLB', 'menu_mlb')],
       ]),
@@ -1817,8 +1878,8 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Ver Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Ver Multiplicador', 'opt_mlb_multi')],
-        [Markup.button.callback('💣 Ver Boleto Bomba', 'opt_mlb_bomba'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_mlb')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador', 'opt_mlb_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_mlb')],
         [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera'), Markup.button.callback('🔙 Menú MLB', 'menu_mlb')],
       ]),
     });
@@ -1849,19 +1910,20 @@ export class ApuestasCronService {
     }).join('\n');
 
     const dictamen = await this.geminiService.analizarCartelera('MLB', carteleraTexto);
+    const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>DICTAMEN QUIRÚRGICO GEMINI AI | MLB</b>\n\n${dictamen}`, {
-      parse_mode: 'Markdown',
+    await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI | MLB</b>\n\n${dictamenLimpio}`, {
+      parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_mlb_multi')],
-        [Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'), Markup.button.callback('🎯 Los 3 Boletos', 'opt_mlb_estrategia')],
-        [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera'), Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'), Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_mlb_estrategia')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera'), Markup.button.callback('🔙 Menú MLB', 'menu_mlb')],
       ]),
     }).catch(async () => {
-      await ctx.reply(`🧠 DICTAMEN GEMINI AI | MLB:\n\n${dictamen}`, {
+      await ctx.reply(`🧠 DICTAMEN GEMINI AI | MLB:\n\n${dictamen.replace(/[*#]/g, '')}`, {
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_mlb_multi')],
-          [Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'), Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
+          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi')],
+          [Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'), Markup.button.callback('🔙 Menú MLB', 'menu_mlb')],
         ]),
       });
     });
@@ -2023,18 +2085,18 @@ export class ApuestasCronService {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
+            Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nba'),
+          ],
+          [
             Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'),
             Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi'),
           ],
           [
-            Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_nba_bomba'),
-            Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nba'),
+            Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'),
+            Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nba_estrategia'),
           ],
           [
-            Markup.button.callback('🎯 Ver los 3 Boletos Juntos', 'opt_nba_estrategia'),
-          ],
-          [
-            Markup.button.callback('📋 Próximos Partidos (Cuotas & Hándicaps)', 'opt_nba_partidos'),
+            Markup.button.callback('📋 Cartelera Completa', 'opt_nba_partidos'),
           ],
           [
             Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_nba_valor'),
@@ -2056,7 +2118,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nba_multi'), Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba')],
+        [Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi'), Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba')],
         [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_nba_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nba')],
         [Markup.button.callback('🔙 Menú NBA', 'menu_nba')],
       ]),
@@ -2090,7 +2152,7 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nba_multi')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi')],
         [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_nba_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nba')],
         [Markup.button.callback('🔙 Menú NBA', 'menu_nba')],
       ]),
@@ -2107,9 +2169,9 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Ver Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Ver Multiplicador', 'opt_nba_multi')],
-        [Markup.button.callback('💣 Ver Boleto Bomba', 'opt_nba_bomba'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nba')],
-        [Markup.button.callback('📋 Próximos Partidos', 'opt_nba_partidos'), Markup.button.callback('🔙 Menú NBA', 'menu_nba')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador', 'opt_nba_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nba')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_nba_partidos'), Markup.button.callback('🔙 Menú NBA', 'menu_nba')],
       ]),
     });
   }
@@ -2139,19 +2201,20 @@ export class ApuestasCronService {
     }).join('\n');
 
     const dictamen = await this.geminiService.analizarCartelera('NBA', carteleraTexto);
+    const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>DICTAMEN QUIRÚRGICO GEMINI AI | NBA</b>\n\n${dictamen}`, {
-      parse_mode: 'Markdown',
+    await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI | NBA</b>\n\n${dictamenLimpio}`, {
+      parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nba_multi')],
-        [Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'), Markup.button.callback('🎯 Los 3 Boletos', 'opt_nba_estrategia')],
-        [Markup.button.callback('📋 Próximos Partidos', 'opt_nba_partidos'), Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'), Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nba_estrategia')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_nba_partidos'), Markup.button.callback('🔙 Menú NBA', 'menu_nba')],
       ]),
     }).catch(async () => {
-      await ctx.reply(`🧠 DICTAMEN GEMINI AI | NBA:\n\n${dictamen}`, {
+      await ctx.reply(`🧠 DICTAMEN GEMINI AI | NBA:\n\n${dictamen.replace(/[*#]/g, '')}`, {
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nba_multi')],
-          [Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'), Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
+          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi')],
+          [Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'), Markup.button.callback('🔙 Menú NBA', 'menu_nba')],
         ]),
       });
     });
