@@ -9,19 +9,20 @@ export class GeminiService {
   private readonly model = 'models/gemini-3-flash-preview';
 
   private readonly systemPrompt = `INSTRUCCIÓN DE SISTEMA:
-Eres el Analista Cuantitativo y Asesor de Apuestas Senior de Apex Analytics.
+Eres el Asesor Personal de Apuestas Deportivas de Apex Analytics.
 REGLAS OBLIGATORIAS:
-1. Tienes estrictamente PROHIBIDO dar saludos largos ("¡Hola!", "Buenos días"), contar historias personales, usar fórmulas de cortesía innecesarias o terminar con preguntas como "¿Deseas algo más?", "¿Quieres otros datos?" o "¿En qué más te ayudo?".
-2. Ve DIRECTO AL GRANO. Responde siempre con estructura de TICKET O BOLETO DE APUESTA claro, conciso y listo para copiar en la casa de apuestas.
-3. Basa tu análisis exclusivamente en los datos cuantitativos del contexto (cuotas reales, probabilidades del modelo, props, márgenes calculados y ventajas +EV).
-4. Estructura estándar para apuestas:
-   • Selección: [Equipo / Peleador / Prop]
-   • Mercado: [Moneyline / Runline / Spread / Total / NRFI]
-   • Cuota: [Número exacto]
-   • Probabilidad estimada: [%]
-   • Argumento técnico: [1 sola frase técnica con la ventaja estadística o física]
-5. Si es una combinada (Parlay), incluye: Cuota Total combinada, Probabilidad combinada y Nivel de Riesgo (Bajo / Medio / Alto).
-6. Si un partido es riesgoso o parejo (50/50), clasifícalo como "DESCARTE / NO APOSTAR" y da el motivo en 1 frase.`;
+1. PROHIBIDO TOTALMENTE usar lenguaje técnico de finanzas, matemáticas o estadísticas como: "+EV", "EV", "ventaja matemática", "algorítmico", "varianza", "exposición a underdogs", "disparidad", "cuota implícita", "probabilidad implícita". Habla como un apostador experimentado y callejero: claro, honesto y directo ("la jugada es...", "ve a lo seguro con...", "es una trampa").
+2. Cero rodeos, cero saludos largos y cero preguntas de cierre como "¿Deseas algo más?".
+3. SI EL USUARIO PIDE LA CARTELERA COMPLETA:
+   - Debes listar CADA UNO de los partidos o peleas del contexto en orden numerado (1, 2, 3...).
+   - Para cada uno, indica la jugada exacta (quién gana directo o el runline/hándicap/altas) y el porcentaje (%) de probabilidad.
+   - Si un partido/pelea está muy parejo (50/50 o volado), di claramente: "🚫 NO METER, es una trampa 50/50".
+4. AL FINAL DE LA CARTELERA COMPLETA O SI PIDE BOLETOS, PRESENTA SIEMPRE LOS 3 BOLETOS CLAVE:
+   - 🟢 BOLETO SEGURO (x2): Las 2 mejores jugadas de alta certeza para duplicar el dinero.
+   - 🟡 BOLETO MULTIPLICADOR (x3 a x5): 3 selecciones de gran valor para triplicar la apuesta.
+   - 💣 BOLETO BOMBA (TODA LA CARTELERA): Todas las selecciones sólidas combinadas, con su cuota total, probabilidad real estimada (~1% a 3%) y la advertencia: "Solo monedas sueltas por diversión, riesgo extremo".
+5. SI PREGUNTA POR UN EQUIPO O PELEADOR ESPECÍFICO:
+   - Analiza ese duelo directo, di quién tiene las de ganar y la recomendación exacta en 2 líneas.`;
 
   /**
    * Envía una solicitud a Gemini con contexto deportivo específico
@@ -32,48 +33,57 @@ REGLAS OBLIGATORIAS:
       return '⚠️ La clave de API de Gemini no está configurada en el servidor.';
     }
 
-    try {
-      const fullInput = `${this.systemPrompt}\n\n` +
-        (contextoDeportivo ? `DATOS CUANTITATIVOS EN TIEMPO REAL (APEX ENGINE):\n${contextoDeportivo}\n\n` : '') +
-        `CONSULTA / SOLICITUD:\n${inputPrompt}`;
+    const fullInput = `${this.systemPrompt}\n\n` +
+      (contextoDeportivo ? `DATOS CUANTITATIVOS EN TIEMPO REAL (APEX ENGINE):\n${contextoDeportivo}\n\n` : '') +
+      `CONSULTA / SOLICITUD:\n${inputPrompt}`;
 
-      const payload = {
-        model: this.model,
-        input: fullInput,
-        generation_config: {
-          temperature: 0.2,
-          max_output_tokens: 4096,
-          thinking_level: 'low',
-        },
-      };
+    const payload = {
+      model: this.model,
+      input: fullInput,
+      generation_config: {
+        temperature: 0.15,
+        max_output_tokens: 4096,
+        thinking_level: 'low',
+      },
+    };
 
-      const res = await axios.post(`${this.endpoint}?key=${this.apiKey}`, payload, {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 25000,
-      });
+    for (let intento = 1; intento <= 2; intento++) {
+      try {
+        const res = await axios.post(`${this.endpoint}?key=${this.apiKey}`, payload, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 45000,
+        });
 
-      const data = res.data;
-      const outputStep = data.steps?.find((s: any) => s.type === 'model_output');
-      if (outputStep && outputStep.content && outputStep.content.length > 0) {
-        return outputStep.content[0].text;
+        const data = res.data;
+        const outputStep = data.steps?.find((s: any) => s.type === 'model_output');
+        if (outputStep && outputStep.content && outputStep.content.length > 0) {
+          return outputStep.content[0].text;
+        }
+
+        return '⚠️ No se pudo extraer la respuesta del modelo Gemini.';
+      } catch (err: any) {
+        this.logger.warn(`Intento ${intento} Gemini API falló: ${err.message}`);
+        if (intento === 1) {
+          await new Promise((r) => setTimeout(r, 1500));
+          continue;
+        }
+        this.logger.error(`Error consultando Gemini API: ${err.message}`, err.response?.data);
+        return '⚠️ Servicio de análisis Gemini temporalmente no disponible. Intenta de nuevo en unos momentos.';
       }
-
-      return '⚠️ No se pudo extraer la respuesta del modelo Gemini.';
-    } catch (err: any) {
-      this.logger.error(`Error consultando Gemini API: ${err.message}`, err.response?.data);
-      return '⚠️ Servicio de análisis Gemini temporalmente no disponible. Intenta de nuevo en unos momentos.';
     }
+    return '⚠️ Servicio de análisis Gemini temporalmente no disponible.';
   }
 
   /**
    * Genera el dictamen de recomendación quirúrgica para un deporte analizado
    */
   async analizarCartelera(deporte: string, datosCartelera: string): Promise<string> {
-    const prompt = `Analiza la cartelera actual de ${deporte.toUpperCase()} de Apex Analytics y genera el DICTAMEN DE APUESTA DEFINITIVO:
-1. El Boleto Seguro de Máxima Certeza (1 o 2 selecciones de mayor probabilidad con cuota combinada ~1.75 - 2.10).
-2. La Jugada de Valor (+EV con cuota alta respaldada por ventaja).
-3. Los Partidos Trampa a Evitar (1 o 2 descartes con su motivo).
-Sé conciso y ve directo al dinero.`;
+    const prompt = `Analiza la cartelera de ${deporte.toUpperCase()} de Apex Analytics y entrega las selecciones directas sin ningún tecnicismo ni palabras como EV:
+1. 🟢 BOLETO SEGURO: Las 2 selecciones de mayor certeza (probabilidad > 70%) para duplicar dinero.
+2. 🟡 BOLETO MULTIPLICADOR: Las 3 mejores jugadas con cuotas más atractivas para multiplicar x3 o x4.
+3. 💣 COMBINADA COMPLETA: Todas las selecciones con favorito claro combinadas, con cuota total, probabilidad real y advertencia.
+4. 🚫 NO APOSTAR / TRAMPAS: Partidos o peleas 50/50 que hay que dejar fuera para salvar dinero.
+Habla en lenguaje de apostador directo, sin tecnicismos ni fórmulas.`;
     return this.consultarGemini(prompt, datosCartelera);
   }
 

@@ -241,9 +241,12 @@ export class ApuestasCronService {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
+            Markup.button.callback('🎯 ¿QUÉ APOSTAR HOY? (3 BOLETOS)', 'menu_boletos_hoy'),
+          ],
+          [
             Markup.button.callback('⚽ FÚTBOL', 'menu_futbol'),
             Markup.button.callback('🏎️ FÓRMULA 1', 'menu_f1'),
-            Markup.button.callback('🥊 UFC (+EV)', 'menu_ufc'),
+            Markup.button.callback('🥊 UFC', 'menu_ufc'),
           ],
           [
             Markup.button.callback('🏈 NFL', 'menu_nfl'),
@@ -261,6 +264,34 @@ export class ApuestasCronService {
           [
             Markup.button.callback('📊 Estadísticas del Motor IA', 'menu_stats'),
           ],
+        ]),
+      },
+    );
+  }
+
+  @Action('menu_boletos_hoy')
+  async accionMenuBoletosHoy(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+
+    await ctx.reply(
+      '🎯 <b>SISTEMA DE BOLETOS DIRECTOS APEX</b>\n\n' +
+        'Elige el deporte para consultar los 3 boletos cuantitativos listos para meter:\n\n' +
+        '🟢 <b>Boleto Seguro (x2):</b> Duplica tu dinero con la más alta certeza.\n' +
+        '🟡 <b>Boleto Multiplicador (x3 a x5):</b> Triplica tu inversión con valor sólido.\n' +
+        '💣 <b>Boleto Bomba:</b> Toda la cartelera combinada (sin trampas 50/50).\n\n' +
+        '¿Qué disciplina deportiva deseas consultar hoy?',
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('⚾ Boletos MLB (Béisbol)', 'opt_mlb_estrategia'),
+            Markup.button.callback('🥊 Boletos UFC (MMA)', 'opt_ufc_estrategia'),
+          ],
+          [
+            Markup.button.callback('🏈 Boletos NFL (Americano)', 'opt_nfl_estrategia'),
+            Markup.button.callback('🏀 Boletos NBA (Básquet)', 'opt_nba_estrategia'),
+          ],
+          [Markup.button.callback('🔙 Volver al Menú Principal', 'menu_start_redirect')],
         ]),
       },
     );
@@ -324,54 +355,112 @@ export class ApuestasCronService {
     );
   }
 
-  private async obtenerContextoResumidoDeportes(): Promise<string> {
+  private async obtenerContextoResumidoDeportes(promptUsuario: string = ''): Promise<string> {
     const lineas: string[] = [];
+    const pLower = promptUsuario.toLowerCase();
+    const esUFC = pLower.includes('ufc') || pLower.includes('mma') || pLower.includes('pelea') || pLower.includes('combate') || pLower.includes('peleador');
+    const esMLB = pLower.includes('mlb') || pLower.includes('beisbol') || pLower.includes('béisbol') || pLower.includes('carrera') || pLower.includes('runline') || pLower.includes('inning');
+    const esNFL = pLower.includes('nfl') || pLower.includes('americano') || pLower.includes('touchdown');
+    const esNBA = pLower.includes('nba') || pLower.includes('basquet') || pLower.includes('básquet') || pLower.includes('baloncesto');
 
-    try {
-      // 1. Contexto MLB
-      const mlb = await this.usSportsService.analizarDeporte('mlb');
-      if (mlb && mlb.juegos && mlb.juegos.length > 0) {
-        lineas.push('--- MLB (BÉISBOL) ---');
-        mlb.juegos.slice(0, 5).forEach((j) => {
-          const pr = j.props;
-          lineas.push(
-            `• ${j.away_team} vs ${j.home_team} | Moneyline: ${j.away_team} ${j.prob_away}% (${j.odds_away}) vs ${j.home_team} ${j.prob_home}% (${j.odds_home})` +
-            (pr ? ` | Runline: ${pr.runline_home} (${pr.runline_home_prob}%) vs ${pr.runline_away} (${pr.runline_away_prob}%) | NRFI: ${pr.nrfi_prob}% | Prop: ${pr.jugada_clave}` : '') +
-            (j.has_value ? ` | +EV: ${j.value_pick} (+${j.value_edge}%)` : ''),
-          );
-        });
-      }
-    } catch (_) {}
+    // 1. Contexto MLB
+    if (esMLB || (!esUFC && !esNFL && !esNBA)) {
+      try {
+        const mlb = await this.usSportsService.analizarDeporte('mlb');
+        if (mlb && mlb.juegos && mlb.juegos.length > 0) {
+          lineas.push('--- MLB (CARTELERA COMPLETA DE BÉISBOL) ---');
+          const maxJuegos = esMLB ? 16 : 5;
+          mlb.juegos.slice(0, maxJuegos).forEach((j, idx) => {
+            const pr = j.props;
+            const isHomeFav = j.prob_home >= j.prob_away;
+            const fav = isHomeFav ? j.home_team : j.away_team;
+            const favProb = Math.max(j.prob_home, j.prob_away);
+            const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+            const diff = Math.abs(j.prob_home - j.prob_away);
+            const esTrampa = diff <= 5 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+            lineas.push(
+              `${idx + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+              (pr ? ` | Runline: ${pr.runline_home} (${pr.runline_home_prob}%) vs ${pr.runline_away} (${pr.runline_away_prob}%) | Totales: ${pr.total_line} carr (Over ${pr.over_prob}%, Under ${pr.under_prob}%) | Jugada sugerida: ${pr.jugada_clave}` : '') +
+              esTrampa,
+            );
+          });
+        }
+      } catch (_) {}
+    }
 
-    try {
-      // 2. Contexto UFC
-      const ufc = await this.ufcService.obtenerCarteleraUFC();
-      if (ufc && ufc.analisis_ufc && ufc.analisis_ufc.length > 0) {
-        lineas.push('\n--- UFC (ARTES MARCIALES MIXTAS) ---');
-        ufc.analisis_ufc.slice(0, 5).forEach((c) => {
-          lineas.push(
-            `• ${c.red_fighter} vs ${c.blue_fighter} | Cuotas: ${c.cuota_red} vs ${c.cuota_blue} | Prob: ${Math.round(c.prob_red)}% vs ${Math.round(c.prob_blue)}%` +
-            (c.props ? ` | KO: ${Math.round(c.props.metodos.ko_tko)}%, Sub: ${Math.round(c.props.metodos.sumision)}% | Prop: ${c.props.jugada_alternativa}` : '') +
-            (c.has_value ? ` | +EV: ${c.value_pick} (+${c.value_edge}%)` : ''),
-          );
-        });
-      }
-    } catch (_) {}
+    // 2. Contexto UFC
+    if (esUFC || (!esMLB && !esNFL && !esNBA)) {
+      try {
+        const ufc = await this.ufcService.obtenerCarteleraUFC();
+        if (ufc && ufc.analisis_ufc && ufc.analisis_ufc.length > 0) {
+          lineas.push('\n--- UFC (CARTELERA COMPLETA DE ARTES MARCIALES MIXTAS) ---');
+          const maxPeleas = esUFC ? 16 : 5;
+          ufc.analisis_ufc.slice(0, maxPeleas).forEach((c, idx) => {
+            const isRedFav = c.prob_red >= c.prob_blue;
+            const fav = isRedFav ? c.red_fighter : c.blue_fighter;
+            const favProb = Math.max(c.prob_red, c.prob_blue);
+            const favOdds = isRedFav ? c.cuota_red : c.cuota_blue;
+            const diff = Math.abs(c.prob_red - c.prob_blue);
+            const esTrampa = diff <= 8 ? ' [ALERTA: VOLADO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+            lineas.push(
+              `${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter} | Favorito: ${fav} (${Math.round(favProb)}% @ ${favOdds})` +
+              (c.props ? ` | Prop: ${c.props.jugada_alternativa}` : '') +
+              esTrampa,
+            );
+          });
+        }
+      } catch (_) {}
+    }
 
-    try {
-      // 3. Contexto NFL
-      const nfl = await this.usSportsService.analizarDeporte('nfl');
-      if (nfl && nfl.juegos && nfl.juegos.length > 0) {
-        lineas.push('\n--- NFL (FÚTBOL AMERICANO) ---');
-        nfl.juegos.slice(0, 5).forEach((j) => {
-          const pr = j.props;
-          lineas.push(
-            `• ${j.away_team} @ ${j.home_team} | Moneyline: ${j.away_team} ${j.prob_away}% vs ${j.home_team} ${j.prob_home}%` +
-            (pr ? ` | Spread (${pr.spread_line} pts): ${j.home_team} ${pr.cover_home_prob}% | Total: ${pr.total_line} pts | Prop: ${pr.jugada_clave}` : ''),
-          );
-        });
-      }
-    } catch (_) {}
+    // 3. Contexto NFL
+    if (esNFL || (!esUFC && !esMLB && !esNBA)) {
+      try {
+        const nfl = await this.usSportsService.analizarDeporte('nfl');
+        if (nfl && nfl.juegos && nfl.juegos.length > 0) {
+          lineas.push('\n--- NFL (FÚTBOL AMERICANO) ---');
+          const maxJuegos = esNFL ? 16 : 5;
+          nfl.juegos.slice(0, maxJuegos).forEach((j, idx) => {
+            const pr = j.props;
+            const isHomeFav = j.prob_home >= j.prob_away;
+            const fav = isHomeFav ? j.home_team : j.away_team;
+            const favProb = Math.max(j.prob_home, j.prob_away);
+            const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+            const diff = Math.abs(j.prob_home - j.prob_away);
+            const esTrampa = diff <= 6 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+            lineas.push(
+              `${idx + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+              (pr ? ` | Spread: ${pr.spread_line} pts | Total: ${pr.total_line} pts | Jugada: ${pr.jugada_clave}` : '') +
+              esTrampa,
+            );
+          });
+        }
+      } catch (_) {}
+    }
+
+    // 4. Contexto NBA
+    if (esNBA || (!esUFC && !esMLB && !esNFL)) {
+      try {
+        const nba = await this.usSportsService.analizarDeporte('nba');
+        if (nba && nba.juegos && nba.juegos.length > 0) {
+          lineas.push('\n--- NBA (BÁSQUETBOL) ---');
+          const maxJuegos = esNBA ? 16 : 5;
+          nba.juegos.slice(0, maxJuegos).forEach((j, idx) => {
+            const pr = j.props;
+            const isHomeFav = j.prob_home >= j.prob_away;
+            const fav = isHomeFav ? j.home_team : j.away_team;
+            const favProb = Math.max(j.prob_home, j.prob_away);
+            const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+            const diff = Math.abs(j.prob_home - j.prob_away);
+            const esTrampa = diff <= 6 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+            lineas.push(
+              `${idx + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+              (pr ? ` | Spread: ${pr.spread_line} pts | Total: ${pr.total_line} pts | Prop: ${pr.jugada_clave}` : '') +
+              esTrampa,
+            );
+          });
+        }
+      } catch (_) {}
+    }
 
     return lineas.join('\n');
   }
@@ -389,27 +478,70 @@ export class ApuestasCronService {
     await ctx.reply('🧠 <b>Apex Gemini AI analizando tu consulta deportiva...</b>', { parse_mode: 'HTML' });
 
     try {
-      const contexto = await this.obtenerContextoResumidoDeportes();
+      const contexto = await this.obtenerContextoResumidoDeportes(text);
       const respuesta = await this.geminiService.responderPreguntaUsuario(text, contexto);
+
+      const pLower = text.toLowerCase();
+      const esUFC = pLower.includes('ufc') || pLower.includes('mma') || pLower.includes('pelea') || pLower.includes('combate');
+      const esMLB = pLower.includes('mlb') || pLower.includes('beisbol') || pLower.includes('béisbol') || pLower.includes('carrera') || pLower.includes('runline');
+      const esNFL = pLower.includes('nfl') || pLower.includes('americano');
+      const esNBA = pLower.includes('nba') || pLower.includes('basquet') || pLower.includes('básquet');
+
+      const btns: any[] = [];
+      if (esMLB) {
+        btns.push([
+          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'),
+          Markup.button.callback('🟡 Multiplicador (x3)', 'opt_mlb_multi'),
+        ]);
+        btns.push([
+          Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_mlb_bomba'),
+          Markup.button.callback('🎯 Ver 3 Boletos MLB', 'opt_mlb_estrategia'),
+        ]);
+      } else if (esUFC) {
+        btns.push([
+          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'),
+          Markup.button.callback('🟡 Multiplicador (x3)', 'opt_ufc_multi'),
+        ]);
+        btns.push([
+          Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_ufc_bomba'),
+          Markup.button.callback('🎯 Ver 3 Boletos UFC', 'opt_ufc_estrategia'),
+        ]);
+      } else if (esNFL) {
+        btns.push([
+          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'),
+          Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nfl_multi'),
+        ]);
+        btns.push([
+          Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_nfl_bomba'),
+          Markup.button.callback('🎯 Ver 3 Boletos NFL', 'opt_nfl_estrategia'),
+        ]);
+      } else if (esNBA) {
+        btns.push([
+          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'),
+          Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nba_multi'),
+        ]);
+        btns.push([
+          Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_nba_bomba'),
+          Markup.button.callback('🎯 Ver 3 Boletos NBA', 'opt_nba_estrategia'),
+        ]);
+      } else {
+        btns.push([
+          Markup.button.callback('🎯 Sistema 3 Boletos', 'menu_boletos_hoy'),
+          Markup.button.callback('⚾ Boletos MLB', 'opt_mlb_estrategia'),
+        ]);
+        btns.push([
+          Markup.button.callback('🥊 Boletos UFC', 'opt_ufc_estrategia'),
+          Markup.button.callback('🏈 Boletos NFL', 'opt_nfl_estrategia'),
+        ]);
+      }
+      btns.push([Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')]);
 
       await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI</b>\n\n${respuesta}`, {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([
-          [
-            Markup.button.callback('⚾ Boletos MLB', 'opt_mlb_estrategia'),
-            Markup.button.callback('🥊 Boletos UFC', 'opt_ufc_estrategia'),
-          ],
-          [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
-        ]),
+        ...Markup.inlineKeyboard(btns),
       }).catch(async () => {
         await ctx.reply(`🧠 DICTAMEN GEMINI AI:\n\n${respuesta}`, {
-          ...Markup.inlineKeyboard([
-            [
-              Markup.button.callback('⚾ Boletos MLB', 'opt_mlb_estrategia'),
-              Markup.button.callback('🥊 Boletos UFC', 'opt_ufc_estrategia'),
-            ],
-            [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
-          ]),
+          ...Markup.inlineKeyboard(btns),
         });
       });
     } catch (e: any) {
@@ -632,8 +764,219 @@ export class ApuestasCronService {
   }
 
   // ------------------------------------------------------------------
-  // MENÚ INTERACTIVO UFC (MODELO CUANTITATIVO & +EV VALUE HUNTER)
+  // MOTOR DE BOLETOS DIRECTOS Y ESTRATEGIA MULTIDEPORTE
   // ------------------------------------------------------------------
+
+  private procesarBoletosDeportivos(
+    deporte: string,
+    matches: { fav: string; rival: string; favOdds: number; favProb: number; diff: number; prop?: string; hasValue?: boolean }[],
+    umbralTrampaDiff: number = 8,
+  ) {
+    const trampas: { duelo: string; razon: string }[] = [];
+    const validos: { titulo: string; rival: string; cuota: number; prob: number; prop?: string }[] = [];
+
+    for (const m of matches) {
+      if (m.diff <= umbralTrampaDiff) {
+        trampas.push({
+          duelo: `${m.fav} vs ${m.rival}`,
+          razon: `Paridad extrema (diferencia de solo ${Math.round(m.diff)}%). Duelo 50/50, trampa en ganador directo.`,
+        });
+      } else if (!m.hasValue && m.favProb < 55 && m.favOdds <= 1.65) {
+        trampas.push({
+          duelo: `${m.fav} vs ${m.rival}`,
+          razon: `Falso favorito (${m.fav} @ ${m.favOdds}). Paga muy poco para una probabilidad de solo ${Math.round(m.favProb)}%.`,
+        });
+      } else if (m.favProb >= 54) {
+        validos.push({
+          titulo: m.fav,
+          rival: m.rival,
+          cuota: m.favOdds,
+          prob: Math.round(m.favProb),
+          prop: m.prop,
+        });
+      }
+    }
+
+    validos.sort((a, b) => b.prob - a.prob);
+
+    // 1. BOLETO SEGURO (Las 2 más certeras)
+    const seguroSels = validos.slice(0, 2);
+    const seguroCuota = seguroSels.reduce((acc, s) => acc * s.cuota, 1);
+    const seguroProb = seguroSels.length >= 2 ? Math.round((seguroSels[0].prob * seguroSels[1].prob) / 100) : (seguroSels[0]?.prob || 0);
+
+    // 2. BOLETO MULTIPLICADOR (3 selecciones con valor x3 a x5)
+    let multiSels: typeof validos = [];
+    if (validos.length >= 3) {
+      const conCuota = validos.filter((v) => v.cuota >= 1.30);
+      multiSels = conCuota.length >= 3 ? conCuota.slice(0, 3) : validos.slice(0, 3);
+    } else {
+      multiSels = [...validos];
+    }
+    const multiCuota = multiSels.reduce((acc, s) => acc * s.cuota, 1);
+    const multiProb = multiSels.length >= 3
+      ? Math.round((multiSels[0].prob * multiSels[1].prob * multiSels[2].prob) / 10000)
+      : Math.round(multiSels.reduce((acc, s) => acc * (s.prob / 100), 1) * 100);
+
+    // 3. BOLETO BOMBA (Todas las selecciones de la cartelera)
+    const bombaSels = [...validos];
+    const bombaCuota = bombaSels.reduce((acc, s) => acc * s.cuota, 1);
+    const bombaProbReal = bombaSels.length > 0
+      ? Math.max(0.5, Math.round(bombaSels.reduce((acc, s) => acc * (s.prob / 100), 1) * 100 * 10) / 10)
+      : 0;
+
+    return {
+      seguro: {
+        cuotaTotal: seguroCuota.toFixed(2),
+        probEstimada: seguroProb,
+        selecciones: seguroSels,
+      },
+      multi: {
+        cuotaTotal: multiCuota.toFixed(2),
+        probEstimada: multiProb,
+        selecciones: multiSels,
+      },
+      bomba: {
+        cuotaTotal: bombaCuota.toFixed(2),
+        probEstimada: Math.round(bombaProbReal),
+        probReal: bombaProbReal,
+        selecciones: bombaSels,
+      },
+      trampas,
+    };
+  }
+
+  private formatearBoletoIndividual(
+    deporte: string,
+    tipo: 'seguro' | 'multi' | 'bomba',
+    boleto: any,
+  ): string {
+    const div = '──────────────────────────────';
+    let header = '';
+    let footer = '';
+
+    if (tipo === 'seguro') {
+      header = `🟢 <b>BOLETO SEGURO (x2) | ${deporte.toUpperCase()}</b>\n` +
+               `<i>Las 2 selecciones de mayor certeza estadística para duplicar tu dinero</i>\n${div}\n\n`;
+      footer = `\n${div}\n` +
+               `💰 <b>Cuota Combinada Total:</b> <b>${boleto.cuotaTotal}</b>\n` +
+               `🎯 <b>Probabilidad Estimada:</b> <b>~${boleto.probEstimada}%</b>\n` +
+               `🛡️ <b>Nivel de Riesgo:</b> <b>BAJO</b> (Máxima protección de banca)\n` +
+               `💡 <i>Recomendación: El boleto ideal para apostadores que buscan sumar constante.</i>`;
+    } else if (tipo === 'multi') {
+      header = `🟡 <b>BOLETO MULTIPLICADOR (x3 a x5) | ${deporte.toUpperCase()}</b>\n` +
+               `<i>3 selecciones con valor y cuotas atractivas para triplicar tu dinero</i>\n${div}\n\n`;
+      footer = `\n${div}\n` +
+               `💰 <b>Cuota Combinada Total:</b> <b>${boleto.cuotaTotal}</b>\n` +
+               `🎯 <b>Probabilidad Estimada:</b> <b>~${boleto.probEstimada}%</b>\n` +
+               `⚖️ <b>Nivel de Riesgo:</b> <b>MEDIO</b> (Gran equilibrio retorno/riesgo)\n` +
+               `💡 <i>Recomendación: Apuesta ideal para hacer crecer tu bankroll con un retorno sustancial.</i>`;
+    } else {
+      header = `💣 <b>BOLETO BOMBA (TODA LA CARTELERA) | ${deporte.toUpperCase()}</b>\n` +
+               `<i>Combinada de todos los favoritos claros (${boleto.selecciones.length} selecciones, sin trampas 50/50)</i>\n${div}\n\n`;
+      footer = `\n${div}\n` +
+               `💰 <b>Cuota Combinada Total:</b> <b>${boleto.cuotaTotal}</b>\n` +
+               `🎯 <b>Probabilidad Real de Acierto:</b> <b>~${boleto.probReal}%</b>\n` +
+               `🔥 <b>Nivel de Riesgo:</b> <b>EXTREMO (BOMBA)</b>\n\n` +
+               `⚠️ <b>ADVERTENCIA HONESTA:</b>\n` +
+               `<i>Este es un boleto de entretenimiento y adrenalina. Apuesta ÚNICAMENTE monedas sueltas o el mínimo de la casa. ¡Nunca arriesgues capital que no estés dispuesto a perder!</i>`;
+    }
+
+    let body = '';
+    if (!boleto.selecciones || boleto.selecciones.length === 0) {
+      body = `• <i>No hay suficientes selecciones disponibles para este boleto en la cartelera de hoy.</i>\n`;
+    } else {
+      boleto.selecciones.forEach((s: any, idx: number) => {
+        body += `<b>Leg ${idx + 1}: ${s.titulo}</b> (vs ${s.rival})\n` +
+                `  Jugada: <b>Ganador Directo</b> | Cuota: <b>${s.cuota}</b> | Certeza: <b>${s.prob}%</b>\n`;
+        if (s.prop) body += `  Prop sugerida: <i>${s.prop}</i>\n`;
+        body += `\n`;
+      });
+    }
+
+    return `${header}${body}${footer}`;
+  }
+
+  private formatearTresBoletosJuntos(
+    deporte: string,
+    pack: any,
+  ): string {
+    const div = '──────────────────────────────';
+    let msg = `🎯 <b>SISTEMA DE BOLETOS DIRECTOS | ${deporte.toUpperCase()}</b>\n` +
+              `<i>Selecciones cuantitativas listas para meter a la banca</i>\n${div}\n\n`;
+
+    // 1. BOLETO SEGURO
+    msg += `🟢 <b>1. BOLETO SEGURO (x2)</b>\n`;
+    if (pack.seguro.selecciones.length < 2) {
+      msg += `<i>No hay suficientes duelos de alta certeza en este momento.</i>\n\n`;
+    } else {
+      pack.seguro.selecciones.forEach((s: any, i: number) => {
+        msg += `  • Leg ${i + 1}: <b>${s.titulo}</b> @ ${s.cuota} (${s.prob}%)\n`;
+      });
+      msg += `  💰 <b>Cuota: ${pack.seguro.cuotaTotal}</b> | Certeza: ~${pack.seguro.probEstimada}% | Riesgo: <b>BAJO</b>\n\n`;
+    }
+
+    // 2. BOLETO MULTIPLICADOR
+    msg += `🟡 <b>2. BOLETO MULTIPLICADOR (x3 a x5)</b>\n`;
+    if (pack.multi.selecciones.length < 2) {
+      msg += `<i>No hay suficientes duelos disponibles para multiplicador.</i>\n\n`;
+    } else {
+      pack.multi.selecciones.forEach((s: any, i: number) => {
+        msg += `  • Leg ${i + 1}: <b>${s.titulo}</b> @ ${s.cuota} (${s.prob}%)\n`;
+      });
+      msg += `  💰 <b>Cuota: ${pack.multi.cuotaTotal}</b> | Certeza: ~${pack.multi.probEstimada}% | Riesgo: <b>MEDIO</b>\n\n`;
+    }
+
+    // 3. BOLETO BOMBA
+    msg += `💣 <b>3. BOLETO BOMBA (${pack.bomba.selecciones.length} SELECCIONES)</b>\n`;
+    if (pack.bomba.selecciones.length === 0) {
+      msg += `<i>Sin selecciones para combinada.</i>\n\n`;
+    } else {
+      msg += `  <i>Combina toda la cartelera descartando las trampas 50/50:</i>\n`;
+      pack.bomba.selecciones.slice(0, 5).forEach((s: any) => {
+        msg += `  • <b>${s.titulo}</b> @ ${s.cuota}\n`;
+      });
+      if (pack.bomba.selecciones.length > 5) {
+        msg += `  • <i>...y ${pack.bomba.selecciones.length - 5} selecciones más</i>\n`;
+      }
+      msg += `  💰 <b>Cuota Total: ${pack.bomba.cuotaTotal}</b> | Prob. Real: ~${pack.bomba.probReal}%\n` +
+             `  ⚠️ <i>Riesgo Extremo: Solo monedas sueltas por diversión.</i>\n\n`;
+    }
+
+    // 4. TRAMPAS
+    msg += `${div}\n` +
+           `🚫 <b>PARTIDOS/PELEAS TRAMPA A EVITAR (50/50)</b>\n`;
+    if (pack.trampas.length === 0) {
+      msg += `<i>No se detectaron trampas anómalas en la jornada.</i>\n`;
+    } else {
+      pack.trampas.slice(0, 4).forEach((t: any) => {
+        msg += `• <b>${t.duelo}</b>: <i>${t.razon}</i>\n`;
+      });
+    }
+
+    return msg;
+  }
+
+  // ------------------------------------------------------------------
+  // MENÚ INTERACTIVO UFC (MODELO CUANTITATIVO & 3 BOLETOS DIRECTOS)
+  // ------------------------------------------------------------------
+
+  private async obtenerPackUFC() {
+    const data = await this.ufcService.obtenerCarteleraUFC();
+    if (data.error || !data.analisis_ufc || data.analisis_ufc.length === 0) return null;
+    const matches = data.analisis_ufc.map((c) => {
+      const isRedFav = c.prob_red >= c.prob_blue;
+      return {
+        fav: isRedFav ? c.red_fighter : c.blue_fighter,
+        rival: isRedFav ? c.blue_fighter : c.red_fighter,
+        favOdds: isRedFav ? c.cuota_red : c.cuota_blue,
+        favProb: Math.max(c.prob_red, c.prob_blue),
+        diff: Math.abs(c.prob_red - c.prob_blue),
+        prop: c.props?.jugada_alternativa,
+        hasValue: c.has_value,
+      };
+    });
+    return this.procesarBoletosDeportivos('UFC', matches, 8);
+  }
 
   @Action('menu_ufc')
   async accionMenuUFC(@Ctx() ctx: Context) {
@@ -641,26 +984,33 @@ export class ApuestasCronService {
 
     await ctx.reply(
       '🥊 <b>CENTRO CUANTITATIVO UFC & MMA</b>\n\n' +
-        'Análisis estadístico de Tale of the Tape, probabilidades de finalización y cuotas en tiempo real.\n\n' +
+        'Análisis de Tale of the Tape, probabilidades de victoria y sistema de boletos listos:\n\n' +
         'Selecciona una opción:',
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('🎯 ¿Qué Apostar? (Boletos Listos)', 'opt_ufc_estrategia'),
-            Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_ufc'),
+            Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'),
+            Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi'),
+          ],
+          [
+            Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_ufc_bomba'),
+            Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_ufc'),
+          ],
+          [
+            Markup.button.callback('🎯 Ver los 3 Boletos Juntos', 'opt_ufc_estrategia'),
+          ],
+          [
+            Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'),
+            Markup.button.callback('🎯 Asaltos & Métodos', 'opt_ufc_props_detail'),
           ],
           [
             Markup.button.callback('🏆 Apuestas con Valor (+EV)', 'opt_ufc_valor'),
-            Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'),
-          ],
-          [
-            Markup.button.callback('🎯 Asaltos & Métodos (Props)', 'opt_ufc_props_detail'),
             Markup.button.callback('📡 Escáner en Vivo (+EV)', 'opt_ufc_the_odds'),
           ],
           [
             Markup.button.callback('📊 Ventajas Físicas', 'opt_ufc_stats'),
-            Markup.button.callback('🔄 Actualizar Stats (Greco)', 'opt_ufc_sync_greco'),
+            Markup.button.callback('🔄 Actualizar Stats', 'opt_ufc_sync_greco'),
           ],
           [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
         ]),
@@ -668,115 +1018,70 @@ export class ApuestasCronService {
     );
   }
 
-  @Action('opt_ufc_estrategia')
-  async accionUFCEstrategia(@Ctx() ctx: Context) {
+  @Action('opt_ufc_seguro')
+  async accionUFCSeguro(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('⏳ <b>Generando boletos listos y matriz táctica UFC...</b>', { parse_mode: 'HTML' });
-
-    const data = await this.ufcService.obtenerCarteleraUFC();
-    if (data.error || !data.analisis_ufc || data.analisis_ufc.length === 0) {
-      await ctx.reply('⚠️ No se pudieron obtener los datos de la UFC en este momento.');
-      return;
-    }
-
-    const combates = data.analisis_ufc;
-    const tier1Bases: any[] = [];
-    const tier3Descartes: any[] = [];
-
-    for (const c of combates) {
-      const isRedFav = c.prob_red >= c.prob_blue;
-      const favName = isRedFav ? c.red_fighter : c.blue_fighter;
-      const rivalName = isRedFav ? c.blue_fighter : c.red_fighter;
-      const favProb = Math.max(c.prob_red, c.prob_blue);
-      const favOdds = isRedFav ? c.cuota_red : c.cuota_blue;
-      const probDiff = Math.abs(c.prob_red - c.prob_blue);
-      const fechaStr = this.formatFechaCorta(c.commence_time);
-
-      // 1. BASES PARA PARLAY & RECOMENDADAS (Probabilidad sólida >= 58%)
-      if (favProb >= 58) {
-        tier1Bases.push({
-          peleador: favName,
-          rival: rivalName,
-          cuota: favOdds,
-          prob: Math.round(favProb),
-          prop: c.props?.jugada_alternativa,
-          fecha: fechaStr,
-        });
-      }
-
-      // 2. A DEJAR POR FUERA / DESCARTES
-      if (probDiff <= 8) {
-        tier3Descartes.push({
-          pelea: `${c.red_fighter} vs ${c.blue_fighter}`,
-          razon: `Paridad extrema (${Math.round(c.prob_red)}% vs ${Math.round(c.prob_blue)}%). Pelea sumamente cerrada, descartar Moneyline directo.`,
-          fecha: fechaStr,
-        });
-      } else if (!c.has_value && favProb < 56 && favOdds <= 1.75) {
-        tier3Descartes.push({
-          pelea: `${c.red_fighter} vs ${c.blue_fighter}`,
-          razon: `Falso favorito (${favName} @ ${favOdds}). Cuota muy castigada para una probabilidad de solo ${Math.round(favProb)}%.`,
-          fecha: fechaStr,
-        });
-      }
-    }
-
-    tier1Bases.sort((a, b) => b.prob - a.prob);
-
-    const div = '──────────────────────────────';
-    let msg = `🎯 <b>APEX DIRECT | BOLETOS LISTOS (UFC)</b>\n` +
-              `<i>Selecciones cuantitativas listas para copiar</i>\n` +
-              `${div}\n\n`;
-
-    // SECCIÓN 1: RECOMENDADAS / BASES PARLAY
-    msg += `🟢 <b>1. TICKET SEGURO (MÁXIMA CERTEZA & PARLAY)</b>\n` +
-           `<i>Favoritos sólidos con probabilidad estadística favorable (≥ 58%):</i>\n\n`;
-
-    if (tier1Bases.length === 0) {
-      msg += `• <i>No se detectaron favoritos con ventaja estadística concluyente (≥ 58%) en este evento.</i>\n\n`;
-    } else {
-      tier1Bases.slice(0, 4).forEach((t) => {
-        msg += `• <b>${t.peleador}</b> (vs ${t.rival})${t.fecha}\n` +
-               `  Cuota: <b>${t.cuota}</b> | Probabilidad Modelo: <b>${t.prob}%</b>\n`;
-        if (t.prop) {
-          msg += `  Prop sugerida: <i>${t.prop}</i>\n`;
-        }
-        msg += `\n`;
-      });
-
-      // GENERADOR DE PARLAY SUGERIDO
-      if (tier1Bases.length >= 2) {
-        const p1 = tier1Bases[0];
-        const p2 = tier1Bases[1];
-        const cuotaCombinada = (p1.cuota * p2.cuota).toFixed(2);
-        const probEstimada = Math.round((p1.prob * p2.prob) / 100);
-        msg += `<b>PARLAY SUGERIDO (2 SELECCIONES):</b>\n` +
-               `  Leg 1: <b>${p1.peleador}</b> @ ${p1.cuota}\n` +
-               `  Leg 2: <b>${p2.peleador}</b> @ ${p2.cuota}\n` +
-               `  <b>Cuota combinada: ${cuotaCombinada}</b> (Confianza estimada: ~${probEstimada}%)\n\n`;
-      }
-    }
-
-    // SECCIÓN 2: DESCARTES Y RIESGO ALTO
-    msg += `${div}\n` +
-           `🚫 <b>2. PELEAS TRAMPA A EVITAR (DESCARTES)</b>\n` +
-           `<i>Combates con paridad excesiva o relación riesgo/retorno desfavorable:</i>\n\n`;
-
-    if (tier3Descartes.length === 0) {
-      msg += `• <i>No se detectaron emparejamientos de riesgo extremo en la cartelera.</i>\n\n`;
-    } else {
-      tier3Descartes.slice(0, 4).forEach((t) => {
-        msg += `• <b>${t.pelea}</b>${t.fecha}\n` +
-               `  Motivo: <i>${t.razon}</i>\n\n`;
-      });
-    }
-
+    await ctx.reply('⏳ <b>Generando Boleto Seguro UFC...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackUFC();
+    if (!pack) return ctx.reply('⚠️ No hay datos de combates disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('UFC', 'seguro', pack.seguro);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_ufc')],
-        [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera')],
-        [Markup.button.callback('💎 Ver Apuestas con Valor (+EV)', 'opt_ufc_the_odds')],
-        [Markup.button.callback('« Volver a UFC', 'menu_ufc')],
+        [Markup.button.callback('🟡 Multiplicador (x3)', 'opt_ufc_multi'), Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_ufc_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_ufc')],
+        [Markup.button.callback('🔙 Menú UFC', 'menu_ufc')],
+      ]),
+    });
+  }
+
+  @Action('opt_ufc_multi')
+  async accionUFCMulti(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Generando Boleto Multiplicador UFC...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackUFC();
+    if (!pack) return ctx.reply('⚠️ No hay datos de combates disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('UFC', 'multi', pack.multi);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_ufc_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_ufc')],
+        [Markup.button.callback('🔙 Menú UFC', 'menu_ufc')],
+      ]),
+    });
+  }
+
+  @Action('opt_ufc_bomba')
+  async accionUFCBomba(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Armando Boleto Bomba (Toda la Cartelera UFC)...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackUFC();
+    if (!pack) return ctx.reply('⚠️ No hay datos de combates disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('UFC', 'bomba', pack.bomba);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_ufc_multi')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_ufc_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_ufc')],
+        [Markup.button.callback('🔙 Menú UFC', 'menu_ufc')],
+      ]),
+    });
+  }
+
+  @Action('opt_ufc_estrategia')
+  async accionUFCEstrategia(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Generando matriz de boletos UFC...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackUFC();
+    if (!pack) return ctx.reply('⚠️ No hay datos de combates disponibles en este momento.');
+    const msg = this.formatearTresBoletosJuntos('UFC', pack);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Ver Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Ver Multiplicador', 'opt_ufc_multi')],
+        [Markup.button.callback('💣 Ver Boleto Bomba', 'opt_ufc_bomba'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_ufc')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'), Markup.button.callback('🔙 Menú UFC', 'menu_ufc')],
       ]),
     });
   }
@@ -792,11 +1097,17 @@ export class ApuestasCronService {
       return;
     }
 
-    const carteleraTexto = data.analisis_ufc.slice(0, 12).map((c, i) => {
+    const carteleraTexto = data.analisis_ufc.map((c, i) => {
       const p = c.props;
-      return `${i + 1}. ${c.red_fighter} vs ${c.blue_fighter} | Cuotas: ${c.cuota_red} vs ${c.cuota_blue} | Prob: ${Math.round(c.prob_red)}% vs ${Math.round(c.prob_blue)}%` +
-             (p ? ` | KO/TKO: ${Math.round(p.metodos.ko_tko)}%, Sub: ${Math.round(p.metodos.sumision)}%, Dec: ${Math.round(p.metodos.decision)}% | Prop: ${p.jugada_alternativa}` : '') +
-             (c.has_value ? ` | VALOR +EV: ${c.value_pick} (+${c.value_edge}%)` : '');
+      const isRedFav = c.prob_red >= c.prob_blue;
+      const fav = isRedFav ? c.red_fighter : c.blue_fighter;
+      const favProb = Math.max(c.prob_red, c.prob_blue);
+      const favOdds = isRedFav ? c.cuota_red : c.cuota_blue;
+      const diff = Math.abs(c.prob_red - c.prob_blue);
+      const esTrampa = diff <= 8 ? ' [ALERTA: VOLADO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+      return `${i + 1}. ${c.red_fighter} vs ${c.blue_fighter} | Favorito: ${fav} (${Math.round(favProb)}% @ ${favOdds})` +
+             (p ? ` | Prop: ${p.jugada_alternativa}` : '') +
+             esTrampa;
     }).join('\n');
 
     const dictamen = await this.geminiService.analizarCartelera('UFC', carteleraTexto);
@@ -804,15 +1115,15 @@ export class ApuestasCronService {
     await ctx.reply(`🧠 <b>DICTAMEN QUIRÚRGICO GEMINI AI | UFC</b>\n\n${dictamen}`, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_ufc_estrategia')],
-        [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera')],
-        [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_ufc_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'), Markup.button.callback('🎯 Los 3 Boletos', 'opt_ufc_estrategia')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'), Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
       ]),
     }).catch(async () => {
       await ctx.reply(`🧠 DICTAMEN GEMINI AI | UFC:\n\n${dictamen}`, {
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_ufc_estrategia')],
-          [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_ufc_multi')],
+          [Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'), Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
         ]),
       });
     });
@@ -1099,137 +1410,123 @@ export class ApuestasCronService {
   // MENÚ Y ACCIONES NFL (FÚTBOL AMERICANO)
   // ------------------------------------------------------------------
 
+  private async obtenerPackNFL() {
+    const res = await this.usSportsService.analizarDeporte('nfl');
+    if (res.error || !res.juegos || res.juegos.length === 0) return null;
+    const matches = res.juegos.map((j) => {
+      const isHomeFav = j.prob_home >= j.prob_away;
+      return {
+        fav: isHomeFav ? j.home_team : j.away_team,
+        rival: isHomeFav ? j.away_team : j.home_team,
+        favOdds: isHomeFav ? j.odds_home : j.odds_away,
+        favProb: Math.max(j.prob_home, j.prob_away),
+        diff: Math.abs(j.prob_home - j.prob_away),
+        prop: j.props?.jugada_clave,
+        hasValue: j.has_value,
+      };
+    });
+    return this.procesarBoletosDeportivos('NFL', matches, 7);
+  }
+
   @Action('menu_nfl')
   async accionMenuNFL(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
 
     await ctx.reply(
       '🏈 <b>CENTRO CUANTITATIVO NFL (FÚTBOL AMERICANO)</b> 🏈\n\n' +
-        'Modelos de Elo dinámico, margen de puntos esperado (Spread), líneas Over/Under y ventaja matemática (+EV).\n\n' +
+        'Modelos de Elo dinámico, margen de puntos (Spread), líneas Over/Under y sistema de boletos listos:\n\n' +
         'Selecciona una opción:',
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('🎯 ¿Qué Apostar? (Boletos Listos)', 'opt_nfl_estrategia'),
-            Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_nfl'),
+            Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'),
+            Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi'),
           ],
-          [Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_nfl_valor')],
-          [Markup.button.callback('📋 Jornada Completa (Cuotas & Hándicaps)', 'opt_nfl_jornada')],
-          [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_nfl_live')],
+          [
+            Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_nfl_bomba'),
+            Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nfl'),
+          ],
+          [
+            Markup.button.callback('🎯 Ver los 3 Boletos Juntos', 'opt_nfl_estrategia'),
+          ],
+          [
+            Markup.button.callback('📋 Jornada Completa (Cuotas & Hándicaps)', 'opt_nfl_jornada'),
+          ],
+          [
+            Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_nfl_valor'),
+            Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_nfl_live'),
+          ],
           [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
         ]),
       },
     );
   }
 
-  @Action('opt_nfl_estrategia')
-  async accionNFLEstrategia(@Ctx() ctx: Context) {
+  @Action('opt_nfl_seguro')
+  async accionNFLSeguro(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('⏳ <b>Generando boletos listos y matriz táctica NFL...</b>', { parse_mode: 'HTML' });
-
-    const res = await this.usSportsService.analizarDeporte('nfl');
-    if (res.error || !res.juegos || res.juegos.length === 0) {
-      await ctx.reply(`⚠️ ${res.error || 'No se pudieron consultar los partidos de NFL.'}`);
-      return;
-    }
-
-    const tier1Bases: any[] = [];
-    const tier3Descartes: any[] = [];
-
-    for (const j of res.juegos) {
-      const isHomeFav = j.prob_home >= j.prob_away;
-      const favName = isHomeFav ? j.home_team : j.away_team;
-      const rivalName = isHomeFav ? j.away_team : j.home_team;
-      const favProb = Math.max(j.prob_home, j.prob_away);
-      const favOdds = isHomeFav ? j.odds_home : j.odds_away;
-      const probDiff = Math.abs(j.prob_home - j.prob_away);
-      const fechaStr = this.formatFechaCorta(j.commence_time);
-
-      // 1. BASES PARA PARLAY & RECOMENDADAS (Probabilidad sólida >= 60%)
-      if (favProb >= 60) {
-        tier1Bases.push({
-          equipo: favName,
-          rival: rivalName,
-          cuota: favOdds,
-          prob: Math.round(favProb),
-          spread: j.expected_margin > 0 ? `${j.home_team} +${j.expected_margin}` : `${j.away_team} +${Math.abs(j.expected_margin)}`,
-          prop: j.props?.jugada_clave,
-          fecha: fechaStr,
-        });
-      }
-
-      // 2. A DEJAR POR FUERA / DESCARTES
-      if (probDiff <= 7) {
-        tier3Descartes.push({
-          partido: `${j.away_team} @ ${j.home_team}`,
-          razon: `Paridad excesiva (${j.prob_away}% vs ${j.prob_home}%). Spread muy apretado, descartar Moneyline directo.`,
-          fecha: fechaStr,
-        });
-      } else if (!j.has_value && favProb < 58 && favOdds <= 1.65) {
-        tier3Descartes.push({
-          partido: `${j.away_team} @ ${j.home_team}`,
-          razon: `Falso favorito (${favName} @ ${favOdds}). Cuota muy castigada para una probabilidad de solo ${Math.round(favProb)}%.`,
-          fecha: fechaStr,
-        });
-      }
-    }
-
-    tier1Bases.sort((a, b) => b.prob - a.prob);
-
-    const div = '──────────────────────────────';
-    let msg = `🎯 <b>APEX DIRECT | BOLETOS LISTOS (NFL)</b>\n` +
-              `<i>Selecciones cuantitativas listas para copiar</i>\n` +
-              `${div}\n\n`;
-
-    // 1. RECOMENDADAS & BASES PARLAY
-    msg += `🟢 <b>1. TICKET SEGURO (MÁXIMA CERTEZA & PARLAY)</b>\n` +
-           `<i>Favoritos sólidos con probabilidad estadística favorable (≥ 60%):</i>\n\n`;
-    if (tier1Bases.length === 0) {
-      msg += `• <i>No se detectaron favoritos con ventaja estadística concluyente (≥ 60%) en esta jornada.</i>\n\n`;
-    } else {
-      tier1Bases.slice(0, 4).forEach((t) => {
-        msg += `• <b>${t.equipo}</b> (vs ${t.rival})${t.fecha}\n` +
-               `  Cuota: <b>${t.cuota}</b> | Probabilidad Modelo: <b>${t.prob}%</b>\n` +
-               `  Spread proyectado: <i>${t.spread} pts</i>\n`;
-        if (t.prop) {
-          msg += `  Prop sugerida: <i>${t.prop}</i>\n`;
-        }
-        msg += `\n`;
-      });
-
-      if (tier1Bases.length >= 2) {
-        const p1 = tier1Bases[0];
-        const p2 = tier1Bases[1];
-        const cuotaCombinada = (p1.cuota * p2.cuota).toFixed(2);
-        const probEstimada = Math.round((p1.prob * p2.prob) / 100);
-        msg += `<b>PARLAY SUGERIDO (2 SELECCIONES):</b>\n` +
-               `  Leg 1: <b>${p1.equipo}</b> @ ${p1.cuota}\n` +
-               `  Leg 2: <b>${p2.equipo}</b> @ ${p2.cuota}\n` +
-               `  <b>Cuota combinada: ${cuotaCombinada}</b> (Confianza estimada: ~${probEstimada}%)\n\n`;
-      }
-    }
-
-    // 2. A DEJAR POR FUERA / DESCARTES
-    msg += `${div}\n` +
-           `🚫 <b>2. PARTIDOS A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
-           `<i>Partidos con paridad excesiva o relación riesgo/retorno desfavorable:</i>\n\n`;
-    if (tier3Descartes.length === 0) {
-      msg += `• <i>Sin partidos de riesgo anómalo detectados en la jornada.</i>\n\n`;
-    } else {
-      tier3Descartes.slice(0, 4).forEach((t) => {
-        msg += `• <b>${t.partido}</b>${t.fecha}\n` +
-               `  Motivo: <i>${t.razon}</i>\n\n`;
-      });
-    }
-
+    await ctx.reply('⏳ <b>Generando Boleto Seguro NFL...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackNFL();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NFL disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('NFL', 'seguro', pack.seguro);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_nfl')],
-        [Markup.button.callback('📋 Ver Jornada Completa', 'opt_nfl_jornada')],
-        [Markup.button.callback('💎 Ver Apuestas con Valor (+EV)', 'opt_nfl_valor')],
-        [Markup.button.callback('« Volver a NFL', 'menu_nfl')],
+        [Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nfl_multi'), Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_nfl_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nfl')],
+        [Markup.button.callback('🔙 Menú NFL', 'menu_nfl')],
+      ]),
+    });
+  }
+
+  @Action('opt_nfl_multi')
+  async accionNFLMulti(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Generando Boleto Multiplicador NFL...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackNFL();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NFL disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('NFL', 'multi', pack.multi);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_nfl_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nfl')],
+        [Markup.button.callback('🔙 Menú NFL', 'menu_nfl')],
+      ]),
+    });
+  }
+
+  @Action('opt_nfl_bomba')
+  async accionNFLBomba(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Armando Boleto Bomba (Toda la Jornada NFL)...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackNFL();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NFL disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('NFL', 'bomba', pack.bomba);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nfl_multi')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_nfl_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nfl')],
+        [Markup.button.callback('🔙 Menú NFL', 'menu_nfl')],
+      ]),
+    });
+  }
+
+  @Action('opt_nfl_estrategia')
+  async accionNFLEstrategia(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Generando matriz de boletos NFL...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackNFL();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NFL disponibles en este momento.');
+    const msg = this.formatearTresBoletosJuntos('NFL', pack);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Ver Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Ver Multiplicador', 'opt_nfl_multi')],
+        [Markup.button.callback('💣 Ver Boleto Bomba', 'opt_nfl_bomba'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nfl')],
+        [Markup.button.callback('📋 Jornada Completa', 'opt_nfl_jornada'), Markup.button.callback('🔙 Menú NFL', 'menu_nfl')],
       ]),
     });
   }
@@ -1245,11 +1542,17 @@ export class ApuestasCronService {
       return;
     }
 
-    const carteleraTexto = res.juegos.slice(0, 10).map((j, i) => {
+    const carteleraTexto = res.juegos.map((j, i) => {
       const pr = j.props;
-      return `${i + 1}. ${j.away_team} @ ${j.home_team} | Moneyline: ${j.away_team} ${j.prob_away}% (${j.odds_away}) vs ${j.home_team} ${j.prob_home}% (${j.odds_home})` +
-             (pr ? ` | Spread (${pr.spread_line} pts): ${j.home_team} ${pr.cover_home_prob}% vs ${j.away_team} ${pr.cover_away_prob}% | Totales ${pr.total_line} pts: Over ${pr.over_prob}%, Under ${pr.under_prob}% | Margen: 7+ pts (${pr.margen_7_mas_prob}%), 1-6 pts (${pr.margen_1_6_prob}%) | Prop: ${pr.jugada_clave}` : '') +
-             (j.has_value ? ` | VALOR +EV: ${j.value_pick} (+${j.value_edge}%)` : '');
+      const isHomeFav = j.prob_home >= j.prob_away;
+      const fav = isHomeFav ? j.home_team : j.away_team;
+      const favProb = Math.max(j.prob_home, j.prob_away);
+      const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+      const diff = Math.abs(j.prob_home - j.prob_away);
+      const esTrampa = diff <= 6 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+      return `${i + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+             (pr ? ` | Spread: ${pr.spread_line} pts | Totales: ${pr.total_line} pts | Prop: ${pr.jugada_clave}` : '') +
+             esTrampa;
     }).join('\n');
 
     const dictamen = await this.geminiService.analizarCartelera('NFL', carteleraTexto);
@@ -1257,15 +1560,15 @@ export class ApuestasCronService {
     await ctx.reply(`🧠 <b>DICTAMEN QUIRÚRGICO GEMINI AI | NFL</b>\n\n${dictamen}`, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_nfl_estrategia')],
-        [Markup.button.callback('📋 Ver Jornada Completa', 'opt_nfl_jornada')],
-        [Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nfl_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'), Markup.button.callback('🎯 Los 3 Boletos', 'opt_nfl_estrategia')],
+        [Markup.button.callback('📋 Jornada Completa', 'opt_nfl_jornada'), Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
       ]),
     }).catch(async () => {
       await ctx.reply(`🧠 DICTAMEN GEMINI AI | NFL:\n\n${dictamen}`, {
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_nfl_estrategia')],
-          [Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
+          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nfl_multi')],
+          [Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'), Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
         ]),
       });
     });
@@ -1400,134 +1703,123 @@ export class ApuestasCronService {
   // MENÚ Y ACCIONES MLB (BÉISBOL)
   // ------------------------------------------------------------------
 
+  private async obtenerPackMLB() {
+    const res = await this.usSportsService.analizarDeporte('mlb');
+    if (res.error || !res.juegos || res.juegos.length === 0) return null;
+    const matches = res.juegos.map((j) => {
+      const isHomeFav = j.prob_home >= j.prob_away;
+      return {
+        fav: isHomeFav ? j.home_team : j.away_team,
+        rival: isHomeFav ? j.away_team : j.home_team,
+        favOdds: isHomeFav ? j.odds_home : j.odds_away,
+        favProb: Math.max(j.prob_home, j.prob_away),
+        diff: Math.abs(j.prob_home - j.prob_away),
+        prop: j.props?.jugada_clave,
+        hasValue: j.has_value,
+      };
+    });
+    return this.procesarBoletosDeportivos('MLB', matches, 5);
+  }
+
   @Action('menu_mlb')
   async accionMenuMLB(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
 
     await ctx.reply(
       '⚾ <b>CENTRO CUANTITATIVO MLB (BÉISBOL)</b> ⚾\n\n' +
-        'Modelos de efectividad, Teorema Pitagórico de Bill James, Runlines (+/- 1.5) y Totales de Carreras.\n\n' +
+        'Modelos de pitcheo, Teorema Pitagórico, Runlines (+/- 1.5) y sistema de boletos listos:\n\n' +
         'Selecciona una opción:',
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('🎯 ¿Qué Apostar? (Boletos Listos)', 'opt_mlb_estrategia'),
-            Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_mlb'),
+            Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'),
+            Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi'),
           ],
-          [Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_mlb_valor')],
-          [Markup.button.callback('📋 Cartelera Completa (Moneyline & Runline)', 'opt_mlb_cartelera')],
-          [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_mlb_live')],
+          [
+            Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_mlb_bomba'),
+            Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_mlb'),
+          ],
+          [
+            Markup.button.callback('🎯 Ver los 3 Boletos Juntos', 'opt_mlb_estrategia'),
+          ],
+          [
+            Markup.button.callback('📋 Cartelera Completa (Moneyline & Runline)', 'opt_mlb_cartelera'),
+          ],
+          [
+            Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_mlb_valor'),
+            Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_mlb_live'),
+          ],
           [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
         ]),
       },
     );
   }
 
-  @Action('opt_mlb_estrategia')
-  async accionMLBEstrategia(@Ctx() ctx: Context) {
+  @Action('opt_mlb_seguro')
+  async accionMLBSeguro(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('⏳ <b>Generando boletos listos y matriz táctica MLB...</b>', { parse_mode: 'HTML' });
-
-    const res = await this.usSportsService.analizarDeporte('mlb');
-    if (res.error || !res.juegos || res.juegos.length === 0) {
-      await ctx.reply(`⚠️ ${res.error || 'No se pudieron consultar los partidos de MLB.'}`);
-      return;
-    }
-
-    const tier1Bases: any[] = [];
-    const tier3Descartes: any[] = [];
-
-    for (const j of res.juegos) {
-      const isHomeFav = j.prob_home >= j.prob_away;
-      const favName = isHomeFav ? j.home_team : j.away_team;
-      const rivalName = isHomeFav ? j.away_team : j.home_team;
-      const favProb = Math.max(j.prob_home, j.prob_away);
-      const favOdds = isHomeFav ? j.odds_home : j.odds_away;
-      const probDiff = Math.abs(j.prob_home - j.prob_away);
-      const fechaStr = this.formatFechaCorta(j.commence_time);
-
-      // 1. BASES PARA PARLAY & RECOMENDADAS (prob >= 56% en béisbol es fuerte)
-      if (favProb >= 56) {
-        tier1Bases.push({
-          equipo: favName,
-          rival: rivalName,
-          cuota: favOdds,
-          prob: Math.round(favProb),
-          total: j.expected_total,
-          prop: j.props?.jugada_clave,
-          fecha: fechaStr,
-        });
-      }
-
-      // 2. A DEJAR POR FUERA / DESCARTES
-      if (probDiff <= 5) {
-        tier3Descartes.push({
-          partido: `${j.away_team} @ ${j.home_team}`,
-          razon: `Duelo de pitcheo parejo (${j.prob_away}% vs ${j.prob_home}%). Moneda al aire en Moneyline.`,
-          fecha: fechaStr,
-        });
-      } else if (!j.has_value && favProb < 54 && favOdds <= 1.65) {
-        tier3Descartes.push({
-          partido: `${j.away_team} @ ${j.home_team}`,
-          razon: `Falso favorito (${favName} @ ${favOdds}). Cuota muy castigada para una ventaja mínima (${Math.round(favProb)}%).`,
-          fecha: fechaStr,
-        });
-      }
-    }
-
-    tier1Bases.sort((a, b) => b.prob - a.prob);
-
-    const div = '──────────────────────────────';
-    let msg = `🎯 <b>APEX DIRECT | BOLETOS LISTOS (MLB)</b>\n` +
-              `<i>Selecciones cuantitativas listas para copiar</i>\n` +
-              `${div}\n\n`;
-
-    // 1. RECOMENDADAS & BASES PARLAY
-    msg += `🟢 <b>1. TICKET SEGURO (MÁXIMA CERTEZA & PARLAY)</b>\n` +
-           `<i>Favoritos sólidos con probabilidad estadística favorable (≥ 56%):</i>\n\n`;
-    if (tier1Bases.length === 0) {
-      msg += `• <i>No se detectaron favoritos con ventaja estadística concluyente (≥ 56%) en esta cartelera.</i>\n\n`;
-    } else {
-      tier1Bases.slice(0, 4).forEach((t) => {
-        msg += `• <b>${t.equipo}</b> (vs ${t.rival})${t.fecha}\n` +
-               `  Cuota: <b>${t.cuota}</b> | Probabilidad Modelo: <b>${t.prob}%</b>\n` +
-               (t.prop ? `  Prop sugerida: <i>${t.prop}</i>\n` : `  Carreras esperadas: <i>${t.total}</i>\n`) +
-               `\n`;
-      });
-
-      if (tier1Bases.length >= 2) {
-        const p1 = tier1Bases[0];
-        const p2 = tier1Bases[1];
-        const cuotaCombinada = (p1.cuota * p2.cuota).toFixed(2);
-        const probEstimada = Math.round((p1.prob * p2.prob) / 100);
-        msg += `<b>PARLAY SUGERIDO (2 SELECCIONES):</b>\n` +
-               `  Leg 1: <b>${p1.equipo}</b> @ ${p1.cuota}\n` +
-               `  Leg 2: <b>${p2.equipo}</b> @ ${p2.cuota}\n` +
-               `  <b>Cuota combinada: ${cuotaCombinada}</b> (Confianza estimada: ~${probEstimada}%)\n\n`;
-      }
-    }
-
-    // 2. A DEJAR POR FUERA / DESCARTES
-    msg += `${div}\n` +
-           `🚫 <b>2. PARTIDOS A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
-           `<i>Partidos con paridad excesiva en pitcheo o relación riesgo/retorno desfavorable:</i>\n\n`;
-    if (tier3Descartes.length === 0) {
-      msg += `• <i>Sin partidos de riesgo anómalo detectados en la jornada.</i>\n\n`;
-    } else {
-      tier3Descartes.slice(0, 4).forEach((t) => {
-        msg += `• <b>${t.partido}</b>${t.fecha}\n` +
-               `  Motivo: <i>${t.razon}</i>\n\n`;
-      });
-    }
-
+    await ctx.reply('⏳ <b>Generando Boleto Seguro MLB...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackMLB();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos MLB disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('MLB', 'seguro', pack.seguro);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_mlb')],
-        [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera')],
-        [Markup.button.callback('💎 Ver Apuestas con Valor (+EV)', 'opt_mlb_valor')],
-        [Markup.button.callback('« Volver a MLB', 'menu_mlb')],
+        [Markup.button.callback('🟡 Multiplicador (x3)', 'opt_mlb_multi'), Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_mlb_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_mlb')],
+        [Markup.button.callback('🔙 Menú MLB', 'menu_mlb')],
+      ]),
+    });
+  }
+
+  @Action('opt_mlb_multi')
+  async accionMLBMulti(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Generando Boleto Multiplicador MLB...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackMLB();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos MLB disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('MLB', 'multi', pack.multi);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_mlb_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_mlb')],
+        [Markup.button.callback('🔙 Menú MLB', 'menu_mlb')],
+      ]),
+    });
+  }
+
+  @Action('opt_mlb_bomba')
+  async accionMLBBomba(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Armando Boleto Bomba (Toda la Cartelera MLB)...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackMLB();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos MLB disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('MLB', 'bomba', pack.bomba);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_mlb_multi')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_mlb_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_mlb')],
+        [Markup.button.callback('🔙 Menú MLB', 'menu_mlb')],
+      ]),
+    });
+  }
+
+  @Action('opt_mlb_estrategia')
+  async accionMLBEstrategia(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Generando matriz de boletos MLB...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackMLB();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos MLB disponibles en este momento.');
+    const msg = this.formatearTresBoletosJuntos('MLB', pack);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Ver Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Ver Multiplicador', 'opt_mlb_multi')],
+        [Markup.button.callback('💣 Ver Boleto Bomba', 'opt_mlb_bomba'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_mlb')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera'), Markup.button.callback('🔙 Menú MLB', 'menu_mlb')],
       ]),
     });
   }
@@ -1543,11 +1835,17 @@ export class ApuestasCronService {
       return;
     }
 
-    const carteleraTexto = res.juegos.slice(0, 10).map((j, i) => {
+    const carteleraTexto = res.juegos.map((j, i) => {
       const pr = j.props;
-      return `${i + 1}. ${j.away_team} vs ${j.home_team} | Moneyline: ${j.away_team} ${j.prob_away}% (${j.odds_away}) vs ${j.home_team} ${j.prob_home}% (${j.odds_home})` +
-             (pr ? ` | Runline: ${pr.runline_home} (${pr.runline_home_prob}%) vs ${pr.runline_away} (${pr.runline_away_prob}%) | Totales ${pr.total_line} carr: Over ${pr.over_prob}%, Under ${pr.under_prob}% | NRFI: ${pr.nrfi_prob}% | F5: ${pr.f5_pick} (${pr.f5_prob}%) | Prop: ${pr.jugada_clave}` : '') +
-             (j.has_value ? ` | VALOR +EV: ${j.value_pick} (+${j.value_edge}%)` : '');
+      const isHomeFav = j.prob_home >= j.prob_away;
+      const fav = isHomeFav ? j.home_team : j.away_team;
+      const favProb = Math.max(j.prob_home, j.prob_away);
+      const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+      const diff = Math.abs(j.prob_home - j.prob_away);
+      const esTrampa = diff <= 5 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+      return `${i + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+             (pr ? ` | Runline: ${pr.runline_home} (${pr.runline_home_prob}%) vs ${pr.runline_away} (${pr.runline_away_prob}%) | Totales: ${pr.total_line} carr | Jugada: ${pr.jugada_clave}` : '') +
+             esTrampa;
     }).join('\n');
 
     const dictamen = await this.geminiService.analizarCartelera('MLB', carteleraTexto);
@@ -1555,15 +1853,15 @@ export class ApuestasCronService {
     await ctx.reply(`🧠 <b>DICTAMEN QUIRÚRGICO GEMINI AI | MLB</b>\n\n${dictamen}`, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_mlb_estrategia')],
-        [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera')],
-        [Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_mlb_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'), Markup.button.callback('🎯 Los 3 Boletos', 'opt_mlb_estrategia')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera'), Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
       ]),
     }).catch(async () => {
       await ctx.reply(`🧠 DICTAMEN GEMINI AI | MLB:\n\n${dictamen}`, {
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_mlb_estrategia')],
-          [Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
+          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_mlb_multi')],
+          [Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'), Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
         ]),
       });
     });
@@ -1695,134 +1993,123 @@ export class ApuestasCronService {
   // MENÚ Y ACCIONES NBA (BÁSQUETBOL)
   // ------------------------------------------------------------------
 
+  private async obtenerPackNBA() {
+    const res = await this.usSportsService.analizarDeporte('nba');
+    if (res.error || !res.juegos || res.juegos.length === 0) return null;
+    const matches = res.juegos.map((j) => {
+      const isHomeFav = j.prob_home >= j.prob_away;
+      return {
+        fav: isHomeFav ? j.home_team : j.away_team,
+        rival: isHomeFav ? j.away_team : j.home_team,
+        favOdds: isHomeFav ? j.odds_home : j.odds_away,
+        favProb: Math.max(j.prob_home, j.prob_away),
+        diff: Math.abs(j.prob_home - j.prob_away),
+        prop: j.props?.jugada_clave,
+        hasValue: j.has_value,
+      };
+    });
+    return this.procesarBoletosDeportivos('NBA', matches, 6);
+  }
+
   @Action('menu_nba')
   async accionMenuNBA(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
 
     await ctx.reply(
       '🏀 <b>CENTRO CUANTITATIVO NBA (BÁSQUETBOL)</b> 🏀\n\n' +
-        'Modelos de ritmo (Pace), rating ofensivo/defensivo, hándicaps de puntos y líneas Over/Under.\n\n' +
+        'Modelos de ritmo, rating ofensivo/defensivo, hándicaps y sistema de boletos listos:\n\n' +
         'Selecciona una opción:',
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('🎯 ¿Qué Apostar? (Boletos Listos)', 'opt_nba_estrategia'),
-            Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_nba'),
+            Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'),
+            Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi'),
           ],
-          [Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_nba_valor')],
-          [Markup.button.callback('📋 Próximos Partidos (Cuotas & Hándicaps)', 'opt_nba_partidos')],
-          [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_nba_live')],
+          [
+            Markup.button.callback('💣 Boleto Bomba (Toda)', 'opt_nba_bomba'),
+            Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nba'),
+          ],
+          [
+            Markup.button.callback('🎯 Ver los 3 Boletos Juntos', 'opt_nba_estrategia'),
+          ],
+          [
+            Markup.button.callback('📋 Próximos Partidos (Cuotas & Hándicaps)', 'opt_nba_partidos'),
+          ],
+          [
+            Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_nba_valor'),
+            Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_nba_live'),
+          ],
           [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
         ]),
       },
     );
   }
 
-  @Action('opt_nba_estrategia')
-  async accionNBAEstrategia(@Ctx() ctx: Context) {
+  @Action('opt_nba_seguro')
+  async accionNBASeguro(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('⏳ <b>Generando boletos listos y matriz táctica NBA...</b>', { parse_mode: 'HTML' });
-
-    const res = await this.usSportsService.analizarDeporte('nba');
-    if (res.error || !res.juegos || res.juegos.length === 0) {
-      await ctx.reply(`⚠️ ${res.error || 'No se pudieron consultar los partidos de NBA.'}`);
-      return;
-    }
-
-    const tier1Bases: any[] = [];
-    const tier3Descartes: any[] = [];
-
-    for (const j of res.juegos) {
-      const isHomeFav = j.prob_home >= j.prob_away;
-      const favName = isHomeFav ? j.home_team : j.away_team;
-      const rivalName = isHomeFav ? j.away_team : j.home_team;
-      const favProb = Math.max(j.prob_home, j.prob_away);
-      const favOdds = isHomeFav ? j.odds_home : j.odds_away;
-      const probDiff = Math.abs(j.prob_home - j.prob_away);
-      const fechaStr = this.formatFechaCorta(j.commence_time);
-
-      // 1. BASES PARA PARLAY & RECOMENDADAS (prob >= 60%)
-      if (favProb >= 60) {
-        tier1Bases.push({
-          equipo: favName,
-          rival: rivalName,
-          cuota: favOdds,
-          prob: Math.round(favProb),
-          spread: j.expected_margin > 0 ? `${j.home_team} +${j.expected_margin}` : `${j.away_team} +${Math.abs(j.expected_margin)}`,
-          prop: j.props?.jugada_clave,
-          fecha: fechaStr,
-        });
-      }
-
-      // 2. A DEJAR POR FUERA / DESCARTES
-      if (probDiff <= 6) {
-        tier3Descartes.push({
-          partido: `${j.away_team} @ ${j.home_team}`,
-          razon: `Partido muy parejo (${j.prob_away}% vs ${j.prob_home}%). Spread muy apretado, descartar Moneyline directo.`,
-          fecha: fechaStr,
-        });
-      } else if (!j.has_value && favProb < 57 && favOdds <= 1.60) {
-        tier3Descartes.push({
-          partido: `${j.away_team} @ ${j.home_team}`,
-          razon: `Falso favorito (${favName} @ ${favOdds}). Cuota muy castigada para solo ${Math.round(favProb)}% probabilidad.`,
-          fecha: fechaStr,
-        });
-      }
-    }
-
-    tier1Bases.sort((a, b) => b.prob - a.prob);
-
-    const div = '──────────────────────────────';
-    let msg = `🎯 <b>APEX DIRECT | BOLETOS LISTOS (NBA)</b>\n` +
-              `<i>Selecciones cuantitativas listas para copiar</i>\n` +
-              `${div}\n\n`;
-
-    // 1. RECOMENDADAS & BASES PARLAY
-    msg += `🟢 <b>1. TICKET SEGURO (MÁXIMA CERTEZA & PARLAY)</b>\n` +
-           `<i>Favoritos sólidos con probabilidad estadística favorable (≥ 60%):</i>\n\n`;
-    if (tier1Bases.length === 0) {
-      msg += `• <i>No se detectaron favoritos con ventaja estadística concluyente (≥ 60%) en esta jornada.</i>\n\n`;
-    } else {
-      tier1Bases.slice(0, 4).forEach((t) => {
-        msg += `• <b>${t.equipo}</b> (vs ${t.rival})${t.fecha}\n` +
-               `  Cuota: <b>${t.cuota}</b> | Probabilidad Modelo: <b>${t.prob}%</b>\n` +
-               (t.prop ? `  Prop sugerida: <i>${t.prop}</i>\n` : `  Margen proyectado: <i>${t.spread} pts</i>\n`) +
-               `\n`;
-      });
-
-      if (tier1Bases.length >= 2) {
-        const p1 = tier1Bases[0];
-        const p2 = tier1Bases[1];
-        const cuotaCombinada = (p1.cuota * p2.cuota).toFixed(2);
-        const probEstimada = Math.round((p1.prob * p2.prob) / 100);
-        msg += `<b>PARLAY SUGERIDO (2 SELECCIONES):</b>\n` +
-               `  Leg 1: <b>${p1.equipo}</b> @ ${p1.cuota}\n` +
-               `  Leg 2: <b>${p2.equipo}</b> @ ${p2.cuota}\n` +
-               `  <b>Cuota combinada: ${cuotaCombinada}</b> (Confianza estimada: ~${probEstimada}%)\n\n`;
-      }
-    }
-
-    // 2. A DEJAR POR FUERA / DESCARTES
-    msg += `${div}\n` +
-           `🚫 <b>2. PARTIDOS A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
-           `<i>Partidos con paridad excesiva o relación riesgo/retorno desfavorable:</i>\n\n`;
-    if (tier3Descartes.length === 0) {
-      msg += `• <i>Sin partidos de riesgo anómalo detectados en la jornada.</i>\n\n`;
-    } else {
-      tier3Descartes.slice(0, 4).forEach((t) => {
-        msg += `• <b>${t.partido}</b>${t.fecha}\n` +
-               `  Motivo: <i>${t.razon}</i>\n\n`;
-      });
-    }
-
+    await ctx.reply('⏳ <b>Generando Boleto Seguro NBA...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackNBA();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NBA disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('NBA', 'seguro', pack.seguro);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_nba')],
-        [Markup.button.callback('📋 Próximos Partidos', 'opt_nba_partidos')],
-        [Markup.button.callback('💎 Ver Apuestas con Valor (+EV)', 'opt_nba_valor')],
-        [Markup.button.callback('« Volver a NBA', 'menu_nba')],
+        [Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nba_multi'), Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_nba_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nba')],
+        [Markup.button.callback('🔙 Menú NBA', 'menu_nba')],
+      ]),
+    });
+  }
+
+  @Action('opt_nba_multi')
+  async accionNBAMulti(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Generando Boleto Multiplicador NBA...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackNBA();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NBA disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('NBA', 'multi', pack.multi);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_nba_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nba')],
+        [Markup.button.callback('🔙 Menú NBA', 'menu_nba')],
+      ]),
+    });
+  }
+
+  @Action('opt_nba_bomba')
+  async accionNBABomba(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Armando Boleto Bomba (Todos los Partidos NBA)...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackNBA();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NBA disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('NBA', 'bomba', pack.bomba);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nba_multi')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_nba_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nba')],
+        [Markup.button.callback('🔙 Menú NBA', 'menu_nba')],
+      ]),
+    });
+  }
+
+  @Action('opt_nba_estrategia')
+  async accionNBAEstrategia(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Generando matriz de boletos NBA...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackNBA();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NBA disponibles en este momento.');
+    const msg = this.formatearTresBoletosJuntos('NBA', pack);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Ver Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Ver Multiplicador', 'opt_nba_multi')],
+        [Markup.button.callback('💣 Ver Boleto Bomba', 'opt_nba_bomba'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nba')],
+        [Markup.button.callback('📋 Próximos Partidos', 'opt_nba_partidos'), Markup.button.callback('🔙 Menú NBA', 'menu_nba')],
       ]),
     });
   }
@@ -1838,12 +2125,17 @@ export class ApuestasCronService {
       return;
     }
 
-    const carteleraTexto = res.juegos.slice(0, 10).map((j, i) => {
+    const carteleraTexto = res.juegos.map((j, i) => {
       const pr = j.props;
-      const spreadTxt = (pr?.spread_line ?? 0) > 0 ? `+${pr?.spread_line}` : `${pr?.spread_line}`;
-      return `${i + 1}. ${j.away_team} @ ${j.home_team} | Moneyline: ${j.away_team} ${j.prob_away}% (${j.odds_away}) vs ${j.home_team} ${j.prob_home}% (${j.odds_home})` +
-             (pr ? ` | Spread (${spreadTxt} pts): ${j.home_team} ${pr.cover_home_prob}% vs ${j.away_team} ${pr.cover_away_prob}% | Totales ${pr.total_line} pts: Over ${pr.over_prob}%, Under ${pr.under_prob}% | Margen: 6+ pts (${pr.margen_6_mas_prob}%), 1-5 pts (${pr.margen_1_5_prob}%) | Prop: ${pr.jugada_clave}` : '') +
-             (j.has_value ? ` | VALOR +EV: ${j.value_pick} (+${j.value_edge}%)` : '');
+      const isHomeFav = j.prob_home >= j.prob_away;
+      const fav = isHomeFav ? j.home_team : j.away_team;
+      const favProb = Math.max(j.prob_home, j.prob_away);
+      const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+      const diff = Math.abs(j.prob_home - j.prob_away);
+      const esTrampa = diff <= 6 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+      return `${i + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+             (pr ? ` | Spread: ${pr.spread_line} pts | Totales: ${pr.total_line} pts | Prop: ${pr.jugada_clave}` : '') +
+             esTrampa;
     }).join('\n');
 
     const dictamen = await this.geminiService.analizarCartelera('NBA', carteleraTexto);
@@ -1851,15 +2143,15 @@ export class ApuestasCronService {
     await ctx.reply(`🧠 <b>DICTAMEN QUIRÚRGICO GEMINI AI | NBA</b>\n\n${dictamen}`, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_nba_estrategia')],
-        [Markup.button.callback('📋 Próximos Partidos', 'opt_nba_partidos')],
-        [Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nba_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'), Markup.button.callback('🎯 Los 3 Boletos', 'opt_nba_estrategia')],
+        [Markup.button.callback('📋 Próximos Partidos', 'opt_nba_partidos'), Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
       ]),
     }).catch(async () => {
       await ctx.reply(`🧠 DICTAMEN GEMINI AI | NBA:\n\n${dictamen}`, {
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_nba_estrategia')],
-          [Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
+          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3)', 'opt_nba_multi')],
+          [Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'), Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
         ]),
       });
     });
