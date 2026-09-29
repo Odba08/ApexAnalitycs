@@ -10,6 +10,7 @@ import axios from 'axios';
 import { F1Service } from './f1.service';
 import { UfcService } from './ufc.service';
 import { UsSportsService } from './us-sports.service';
+import { GeminiService } from './gemini.service';
 
 @Update()
 @Injectable()
@@ -31,6 +32,7 @@ export class ApuestasCronService {
     private readonly f1Service: F1Service,
     private readonly ufcService: UfcService,
     private readonly usSportsService: UsSportsService,
+    private readonly geminiService: GeminiService,
   ) {}
 
   // Cronjob cada 10 minutos para mantener el servicio activo en Render
@@ -249,8 +251,8 @@ export class ApuestasCronService {
             Markup.button.callback('🏀 NBA', 'menu_nba'),
           ],
           [
+            Markup.button.callback('🧠 Asistente Gemini AI', 'menu_gemini_info'),
             Markup.button.callback('🎯 Top Apuestas Globales', 'menu_hoy'),
-            Markup.button.callback('⭐️ Ranking BD Equipos', 'top_todas'),
           ],
           [
             Markup.button.callback('📱 Dashboard WebApp', 'menu_webapp_info'),
@@ -291,24 +293,128 @@ export class ApuestasCronService {
     );
   }
 
+  @Action('menu_gemini_info')
+  async accionGeminiInfo(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+
+    await ctx.reply(
+      `🧠 <b>ASISTENTE CUANTITATIVO APEX | GEMINI AI</b> 🧠\n\n` +
+      `¡Bienvenido a tu copiloto inteligente de apuestas deportivas!\n\n` +
+      `Puedes <b>escribir cualquier duda o consulta directamente aquí en el chat</b> y Gemini la responderá analizando nuestras probabilidades matemáticas en tiempo real.\n\n` +
+      `<b>Ejemplos de preguntas que puedes hacer:</b>\n` +
+      `• <i>"¿Qué me recomiendas apostar hoy en béisbol?"</i>\n` +
+      `• <i>"Tengo $20, ármame un parlay de 2 jugadas seguras."</i>\n` +
+      `• <i>"¿Vale la pena meterle a los Dodgers hoy o es mejor evitarlos?"</i>\n` +
+      `• <i>"Dame la mejor prop de UFC para este fin de semana."</i>\n\n` +
+      `<i>O selecciona una disciplina abajo para generar un dictamen automático:</i>`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('⚾ Dictamen MLB', 'opt_gemini_mlb'),
+            Markup.button.callback('🥊 Dictamen UFC', 'opt_gemini_ufc'),
+          ],
+          [
+            Markup.button.callback('🏈 Dictamen NFL', 'opt_gemini_nfl'),
+            Markup.button.callback('🏀 Dictamen NBA', 'opt_gemini_nba'),
+          ],
+          [Markup.button.callback('🔙 Volver al Menú Principal', 'menu_start_redirect')],
+        ]),
+      },
+    );
+  }
+
+  private async obtenerContextoResumidoDeportes(): Promise<string> {
+    const lineas: string[] = [];
+
+    try {
+      // 1. Contexto MLB
+      const mlb = await this.usSportsService.analizarDeporte('mlb');
+      if (mlb && mlb.juegos && mlb.juegos.length > 0) {
+        lineas.push('--- MLB (BÉISBOL) ---');
+        mlb.juegos.slice(0, 5).forEach((j) => {
+          const pr = j.props;
+          lineas.push(
+            `• ${j.away_team} vs ${j.home_team} | Moneyline: ${j.away_team} ${j.prob_away}% (${j.odds_away}) vs ${j.home_team} ${j.prob_home}% (${j.odds_home})` +
+            (pr ? ` | Runline: ${pr.runline_home} (${pr.runline_home_prob}%) vs ${pr.runline_away} (${pr.runline_away_prob}%) | NRFI: ${pr.nrfi_prob}% | Prop: ${pr.jugada_clave}` : '') +
+            (j.has_value ? ` | +EV: ${j.value_pick} (+${j.value_edge}%)` : ''),
+          );
+        });
+      }
+    } catch (_) {}
+
+    try {
+      // 2. Contexto UFC
+      const ufc = await this.ufcService.obtenerCarteleraUFC();
+      if (ufc && ufc.analisis_ufc && ufc.analisis_ufc.length > 0) {
+        lineas.push('\n--- UFC (ARTES MARCIALES MIXTAS) ---');
+        ufc.analisis_ufc.slice(0, 5).forEach((c) => {
+          lineas.push(
+            `• ${c.red_fighter} vs ${c.blue_fighter} | Cuotas: ${c.cuota_red} vs ${c.cuota_blue} | Prob: ${Math.round(c.prob_red)}% vs ${Math.round(c.prob_blue)}%` +
+            (c.props ? ` | KO: ${Math.round(c.props.metodos.ko_tko)}%, Sub: ${Math.round(c.props.metodos.sumision)}% | Prop: ${c.props.jugada_alternativa}` : '') +
+            (c.has_value ? ` | +EV: ${c.value_pick} (+${c.value_edge}%)` : ''),
+          );
+        });
+      }
+    } catch (_) {}
+
+    try {
+      // 3. Contexto NFL
+      const nfl = await this.usSportsService.analizarDeporte('nfl');
+      if (nfl && nfl.juegos && nfl.juegos.length > 0) {
+        lineas.push('\n--- NFL (FÚTBOL AMERICANO) ---');
+        nfl.juegos.slice(0, 5).forEach((j) => {
+          const pr = j.props;
+          lineas.push(
+            `• ${j.away_team} @ ${j.home_team} | Moneyline: ${j.away_team} ${j.prob_away}% vs ${j.home_team} ${j.prob_home}%` +
+            (pr ? ` | Spread (${pr.spread_line} pts): ${j.home_team} ${pr.cover_home_prob}% | Total: ${pr.total_line} pts | Prop: ${pr.jugada_clave}` : ''),
+          );
+        });
+      }
+    } catch (_) {}
+
+    return lineas.join('\n');
+  }
+
   @On('text')
   async mensajeTextoGenerico(@Ctx() ctx: Context) {
     const text = (ctx.message as any)?.text || '';
     if (text.startsWith('/')) return; // Ignorar si es un comando
 
-    const usuario = ctx.from?.first_name || 'Amigo';
-    await ctx.reply(
-      `👋 <b>¡Hola ${usuario}!</b>\n\n` +
-        `Para explorar el centro de Fútbol o la Fórmula 1, presiona o escribe <b>/start</b> para desplegar el panel principal.`,
-      {
-        parse_mode: 'HTML',
+    const textClean = text.trim().toLowerCase();
+    if (['hola', 'buenas', 'buenos dias', 'buenas tardes', 'menu', 'inicio'].includes(textClean)) {
+      return this.comandoMenuPrincipal(ctx);
+    }
+
+    await ctx.reply('🧠 <b>Apex Gemini AI analizando tu consulta deportiva...</b>', { parse_mode: 'HTML' });
+
+    try {
+      const contexto = await this.obtenerContextoResumidoDeportes();
+      const respuesta = await this.geminiService.responderPreguntaUsuario(text, contexto);
+
+      await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI</b>\n\n${respuesta}`, {
+        parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('🚀 Desplegar Menú Principal', 'menu_start_redirect'),
+            Markup.button.callback('⚾ Boletos MLB', 'opt_mlb_estrategia'),
+            Markup.button.callback('🥊 Boletos UFC', 'opt_ufc_estrategia'),
           ],
+          [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
         ]),
-      },
-    );
+      }).catch(async () => {
+        await ctx.reply(`🧠 DICTAMEN GEMINI AI:\n\n${respuesta}`, {
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.callback('⚾ Boletos MLB', 'opt_mlb_estrategia'),
+              Markup.button.callback('🥊 Boletos UFC', 'opt_ufc_estrategia'),
+            ],
+            [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
+          ]),
+        });
+      });
+    } catch (e: any) {
+      await ctx.reply(`⚠️ No se pudo procesar la consulta con Gemini en este momento.`);
+    }
   }
 
   @Action('menu_start_redirect')
@@ -541,7 +647,8 @@ export class ApuestasCronService {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback('📊 Estrategia (Recomendadas & Descartes)', 'opt_ufc_estrategia'),
+            Markup.button.callback('🎯 ¿Qué Apostar? (Boletos Listos)', 'opt_ufc_estrategia'),
+            Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_ufc'),
           ],
           [
             Markup.button.callback('🏆 Apuestas con Valor (+EV)', 'opt_ufc_valor'),
@@ -564,7 +671,7 @@ export class ApuestasCronService {
   @Action('opt_ufc_estrategia')
   async accionUFCEstrategia(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('⏳ <b>Generando matriz estratégica cuantitativa UFC...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('⏳ <b>Generando boletos listos y matriz táctica UFC...</b>', { parse_mode: 'HTML' });
 
     const data = await this.ufcService.obtenerCarteleraUFC();
     if (data.error || !data.analisis_ufc || data.analisis_ufc.length === 0) {
@@ -616,12 +723,12 @@ export class ApuestasCronService {
     tier1Bases.sort((a, b) => b.prob - a.prob);
 
     const div = '──────────────────────────────';
-    let msg = `🥊 <b>ESTRATEGIA CUANTITATIVA APEX | UFC</b>\n` +
-              `<i>Matriz de selección táctica y gestión de riesgo</i>\n` +
+    let msg = `🎯 <b>APEX DIRECT | BOLETOS LISTOS (UFC)</b>\n` +
+              `<i>Selecciones cuantitativas listas para copiar</i>\n` +
               `${div}\n\n`;
 
     // SECCIÓN 1: RECOMENDADAS / BASES PARLAY
-    msg += `<b>1. SELECCIONES RECOMENDADAS & BASES DE PARLAY</b>\n` +
+    msg += `🟢 <b>1. TICKET SEGURO (MÁXIMA CERTEZA & PARLAY)</b>\n` +
            `<i>Favoritos sólidos con probabilidad estadística favorable (≥ 58%):</i>\n\n`;
 
     if (tier1Bases.length === 0) {
@@ -651,7 +758,7 @@ export class ApuestasCronService {
 
     // SECCIÓN 2: DESCARTES Y RIESGO ALTO
     msg += `${div}\n` +
-           `<b>2. SELECCIONES A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
+           `🚫 <b>2. PELEAS TRAMPA A EVITAR (DESCARTES)</b>\n` +
            `<i>Combates con paridad excesiva o relación riesgo/retorno desfavorable:</i>\n\n`;
 
     if (tier3Descartes.length === 0) {
@@ -666,10 +773,48 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
+        [Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_ufc')],
         [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera')],
         [Markup.button.callback('💎 Ver Apuestas con Valor (+EV)', 'opt_ufc_the_odds')],
         [Markup.button.callback('« Volver a UFC', 'menu_ufc')],
       ]),
+    });
+  }
+
+  @Action('opt_gemini_ufc')
+  async accionGeminiUFC(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('🧠 <b>Apex Gemini AI analizando combates de UFC...</b>', { parse_mode: 'HTML' });
+
+    const data = await this.ufcService.obtenerCarteleraUFC();
+    if (data.error || !data.analisis_ufc || data.analisis_ufc.length === 0) {
+      await ctx.reply('⚠️ No hay combates de UFC disponibles para analizar en este momento.');
+      return;
+    }
+
+    const carteleraTexto = data.analisis_ufc.slice(0, 12).map((c, i) => {
+      const p = c.props;
+      return `${i + 1}. ${c.red_fighter} vs ${c.blue_fighter} | Cuotas: ${c.cuota_red} vs ${c.cuota_blue} | Prob: ${Math.round(c.prob_red)}% vs ${Math.round(c.prob_blue)}%` +
+             (p ? ` | KO/TKO: ${Math.round(p.metodos.ko_tko)}%, Sub: ${Math.round(p.metodos.sumision)}%, Dec: ${Math.round(p.metodos.decision)}% | Prop: ${p.jugada_alternativa}` : '') +
+             (c.has_value ? ` | VALOR +EV: ${c.value_pick} (+${c.value_edge}%)` : '');
+    }).join('\n');
+
+    const dictamen = await this.geminiService.analizarCartelera('UFC', carteleraTexto);
+
+    await ctx.reply(`🧠 <b>DICTAMEN QUIRÚRGICO GEMINI AI | UFC</b>\n\n${dictamen}`, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_ufc_estrategia')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera')],
+        [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+      ]),
+    }).catch(async () => {
+      await ctx.reply(`🧠 DICTAMEN GEMINI AI | UFC:\n\n${dictamen}`, {
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_ufc_estrategia')],
+          [Markup.button.callback('🔙 Volver a UFC', 'menu_ufc')],
+        ]),
+      });
     });
   }
 
@@ -965,7 +1110,10 @@ export class ApuestasCronService {
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('📊 Estrategia (Recomendadas & Descartes)', 'opt_nfl_estrategia')],
+          [
+            Markup.button.callback('🎯 ¿Qué Apostar? (Boletos Listos)', 'opt_nfl_estrategia'),
+            Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_nfl'),
+          ],
           [Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_nfl_valor')],
           [Markup.button.callback('📋 Jornada Completa (Cuotas & Hándicaps)', 'opt_nfl_jornada')],
           [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_nfl_live')],
@@ -978,7 +1126,7 @@ export class ApuestasCronService {
   @Action('opt_nfl_estrategia')
   async accionNFLEstrategia(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('⏳ <b>Generando matriz estratégica cuantitativa NFL...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('⏳ <b>Generando boletos listos y matriz táctica NFL...</b>', { parse_mode: 'HTML' });
 
     const res = await this.usSportsService.analizarDeporte('nfl');
     if (res.error || !res.juegos || res.juegos.length === 0) {
@@ -1030,12 +1178,12 @@ export class ApuestasCronService {
     tier1Bases.sort((a, b) => b.prob - a.prob);
 
     const div = '──────────────────────────────';
-    let msg = `🏈 <b>ESTRATEGIA CUANTITATIVA APEX | NFL</b>\n` +
-              `<i>Matriz de selección táctica y gestión de riesgo</i>\n` +
+    let msg = `🎯 <b>APEX DIRECT | BOLETOS LISTOS (NFL)</b>\n` +
+              `<i>Selecciones cuantitativas listas para copiar</i>\n` +
               `${div}\n\n`;
 
     // 1. RECOMENDADAS & BASES PARLAY
-    msg += `<b>1. SELECCIONES RECOMENDADAS & BASES DE PARLAY</b>\n` +
+    msg += `🟢 <b>1. TICKET SEGURO (MÁXIMA CERTEZA & PARLAY)</b>\n` +
            `<i>Favoritos sólidos con probabilidad estadística favorable (≥ 60%):</i>\n\n`;
     if (tier1Bases.length === 0) {
       msg += `• <i>No se detectaron favoritos con ventaja estadística concluyente (≥ 60%) en esta jornada.</i>\n\n`;
@@ -1064,7 +1212,7 @@ export class ApuestasCronService {
 
     // 2. A DEJAR POR FUERA / DESCARTES
     msg += `${div}\n` +
-           `<b>2. SELECCIONES A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
+           `🚫 <b>2. PARTIDOS A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
            `<i>Partidos con paridad excesiva o relación riesgo/retorno desfavorable:</i>\n\n`;
     if (tier3Descartes.length === 0) {
       msg += `• <i>Sin partidos de riesgo anómalo detectados en la jornada.</i>\n\n`;
@@ -1078,10 +1226,48 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
+        [Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_nfl')],
         [Markup.button.callback('📋 Ver Jornada Completa', 'opt_nfl_jornada')],
         [Markup.button.callback('💎 Ver Apuestas con Valor (+EV)', 'opt_nfl_valor')],
         [Markup.button.callback('« Volver a NFL', 'menu_nfl')],
       ]),
+    });
+  }
+
+  @Action('opt_gemini_nfl')
+  async accionGeminiNFL(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('🧠 <b>Apex Gemini AI analizando partidos de NFL...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.usSportsService.analizarDeporte('nfl');
+    if (res.error || !res.juegos || res.juegos.length === 0) {
+      await ctx.reply('⚠️ No hay partidos de NFL disponibles para analizar en este momento.');
+      return;
+    }
+
+    const carteleraTexto = res.juegos.slice(0, 10).map((j, i) => {
+      const pr = j.props;
+      return `${i + 1}. ${j.away_team} @ ${j.home_team} | Moneyline: ${j.away_team} ${j.prob_away}% (${j.odds_away}) vs ${j.home_team} ${j.prob_home}% (${j.odds_home})` +
+             (pr ? ` | Spread (${pr.spread_line} pts): ${j.home_team} ${pr.cover_home_prob}% vs ${j.away_team} ${pr.cover_away_prob}% | Totales ${pr.total_line} pts: Over ${pr.over_prob}%, Under ${pr.under_prob}% | Margen: 7+ pts (${pr.margen_7_mas_prob}%), 1-6 pts (${pr.margen_1_6_prob}%) | Prop: ${pr.jugada_clave}` : '') +
+             (j.has_value ? ` | VALOR +EV: ${j.value_pick} (+${j.value_edge}%)` : '');
+    }).join('\n');
+
+    const dictamen = await this.geminiService.analizarCartelera('NFL', carteleraTexto);
+
+    await ctx.reply(`🧠 <b>DICTAMEN QUIRÚRGICO GEMINI AI | NFL</b>\n\n${dictamen}`, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_nfl_estrategia')],
+        [Markup.button.callback('📋 Ver Jornada Completa', 'opt_nfl_jornada')],
+        [Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
+      ]),
+    }).catch(async () => {
+      await ctx.reply(`🧠 DICTAMEN GEMINI AI | NFL:\n\n${dictamen}`, {
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_nfl_estrategia')],
+          [Markup.button.callback('🔙 Volver a NFL', 'menu_nfl')],
+        ]),
+      });
     });
   }
 
@@ -1225,7 +1411,10 @@ export class ApuestasCronService {
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('📊 Estrategia (Recomendadas & Descartes)', 'opt_mlb_estrategia')],
+          [
+            Markup.button.callback('🎯 ¿Qué Apostar? (Boletos Listos)', 'opt_mlb_estrategia'),
+            Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_mlb'),
+          ],
           [Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_mlb_valor')],
           [Markup.button.callback('📋 Cartelera Completa (Moneyline & Runline)', 'opt_mlb_cartelera')],
           [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_mlb_live')],
@@ -1238,7 +1427,7 @@ export class ApuestasCronService {
   @Action('opt_mlb_estrategia')
   async accionMLBEstrategia(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('⏳ <b>Generando matriz estratégica cuantitativa MLB...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('⏳ <b>Generando boletos listos y matriz táctica MLB...</b>', { parse_mode: 'HTML' });
 
     const res = await this.usSportsService.analizarDeporte('mlb');
     if (res.error || !res.juegos || res.juegos.length === 0) {
@@ -1290,12 +1479,12 @@ export class ApuestasCronService {
     tier1Bases.sort((a, b) => b.prob - a.prob);
 
     const div = '──────────────────────────────';
-    let msg = `⚾ <b>ESTRATEGIA CUANTITATIVA APEX | MLB</b>\n` +
-              `<i>Matriz de selección táctica y gestión de riesgo</i>\n` +
+    let msg = `🎯 <b>APEX DIRECT | BOLETOS LISTOS (MLB)</b>\n` +
+              `<i>Selecciones cuantitativas listas para copiar</i>\n` +
               `${div}\n\n`;
 
     // 1. RECOMENDADAS & BASES PARLAY
-    msg += `<b>1. SELECCIONES RECOMENDADAS & BASES DE PARLAY</b>\n` +
+    msg += `🟢 <b>1. TICKET SEGURO (MÁXIMA CERTEZA & PARLAY)</b>\n` +
            `<i>Favoritos sólidos con probabilidad estadística favorable (≥ 56%):</i>\n\n`;
     if (tier1Bases.length === 0) {
       msg += `• <i>No se detectaron favoritos con ventaja estadística concluyente (≥ 56%) en esta cartelera.</i>\n\n`;
@@ -1321,7 +1510,7 @@ export class ApuestasCronService {
 
     // 2. A DEJAR POR FUERA / DESCARTES
     msg += `${div}\n` +
-           `<b>2. SELECCIONES A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
+           `🚫 <b>2. PARTIDOS A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
            `<i>Partidos con paridad excesiva en pitcheo o relación riesgo/retorno desfavorable:</i>\n\n`;
     if (tier3Descartes.length === 0) {
       msg += `• <i>Sin partidos de riesgo anómalo detectados en la jornada.</i>\n\n`;
@@ -1335,10 +1524,48 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
+        [Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_mlb')],
         [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera')],
         [Markup.button.callback('💎 Ver Apuestas con Valor (+EV)', 'opt_mlb_valor')],
         [Markup.button.callback('« Volver a MLB', 'menu_mlb')],
       ]),
+    });
+  }
+
+  @Action('opt_gemini_mlb')
+  async accionGeminiMLB(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('🧠 <b>Apex Gemini AI analizando la cartelera de MLB...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.usSportsService.analizarDeporte('mlb');
+    if (res.error || !res.juegos || res.juegos.length === 0) {
+      await ctx.reply(`⚠️ No hay datos suficientes de MLB para analizar en este momento.`);
+      return;
+    }
+
+    const carteleraTexto = res.juegos.slice(0, 10).map((j, i) => {
+      const pr = j.props;
+      return `${i + 1}. ${j.away_team} vs ${j.home_team} | Moneyline: ${j.away_team} ${j.prob_away}% (${j.odds_away}) vs ${j.home_team} ${j.prob_home}% (${j.odds_home})` +
+             (pr ? ` | Runline: ${pr.runline_home} (${pr.runline_home_prob}%) vs ${pr.runline_away} (${pr.runline_away_prob}%) | Totales ${pr.total_line} carr: Over ${pr.over_prob}%, Under ${pr.under_prob}% | NRFI: ${pr.nrfi_prob}% | F5: ${pr.f5_pick} (${pr.f5_prob}%) | Prop: ${pr.jugada_clave}` : '') +
+             (j.has_value ? ` | VALOR +EV: ${j.value_pick} (+${j.value_edge}%)` : '');
+    }).join('\n');
+
+    const dictamen = await this.geminiService.analizarCartelera('MLB', carteleraTexto);
+
+    await ctx.reply(`🧠 <b>DICTAMEN QUIRÚRGICO GEMINI AI | MLB</b>\n\n${dictamen}`, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_mlb_estrategia')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera')],
+        [Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
+      ]),
+    }).catch(async () => {
+      await ctx.reply(`🧠 DICTAMEN GEMINI AI | MLB:\n\n${dictamen}`, {
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_mlb_estrategia')],
+          [Markup.button.callback('🔙 Volver a MLB', 'menu_mlb')],
+        ]),
+      });
     });
   }
 
@@ -1479,7 +1706,10 @@ export class ApuestasCronService {
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('📊 Estrategia (Recomendadas & Descartes)', 'opt_nba_estrategia')],
+          [
+            Markup.button.callback('🎯 ¿Qué Apostar? (Boletos Listos)', 'opt_nba_estrategia'),
+            Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_nba'),
+          ],
           [Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_nba_valor')],
           [Markup.button.callback('📋 Próximos Partidos (Cuotas & Hándicaps)', 'opt_nba_partidos')],
           [Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_nba_live')],
@@ -1492,7 +1722,7 @@ export class ApuestasCronService {
   @Action('opt_nba_estrategia')
   async accionNBAEstrategia(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('⏳ <b>Generando matriz estratégica cuantitativa NBA...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('⏳ <b>Generando boletos listos y matriz táctica NBA...</b>', { parse_mode: 'HTML' });
 
     const res = await this.usSportsService.analizarDeporte('nba');
     if (res.error || !res.juegos || res.juegos.length === 0) {
@@ -1544,12 +1774,12 @@ export class ApuestasCronService {
     tier1Bases.sort((a, b) => b.prob - a.prob);
 
     const div = '──────────────────────────────';
-    let msg = `🏀 <b>ESTRATEGIA CUANTITATIVA APEX | NBA</b>\n` +
-              `<i>Matriz de selección táctica y gestión de riesgo</i>\n` +
+    let msg = `🎯 <b>APEX DIRECT | BOLETOS LISTOS (NBA)</b>\n` +
+              `<i>Selecciones cuantitativas listas para copiar</i>\n` +
               `${div}\n\n`;
 
     // 1. RECOMENDADAS & BASES PARLAY
-    msg += `<b>1. SELECCIONES RECOMENDADAS & BASES DE PARLAY</b>\n` +
+    msg += `🟢 <b>1. TICKET SEGURO (MÁXIMA CERTEZA & PARLAY)</b>\n` +
            `<i>Favoritos sólidos con probabilidad estadística favorable (≥ 60%):</i>\n\n`;
     if (tier1Bases.length === 0) {
       msg += `• <i>No se detectaron favoritos con ventaja estadística concluyente (≥ 60%) en esta jornada.</i>\n\n`;
@@ -1575,7 +1805,7 @@ export class ApuestasCronService {
 
     // 2. A DEJAR POR FUERA / DESCARTES
     msg += `${div}\n` +
-           `<b>2. SELECCIONES A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
+           `🚫 <b>2. PARTIDOS A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
            `<i>Partidos con paridad excesiva o relación riesgo/retorno desfavorable:</i>\n\n`;
     if (tier3Descartes.length === 0) {
       msg += `• <i>Sin partidos de riesgo anómalo detectados en la jornada.</i>\n\n`;
@@ -1589,10 +1819,49 @@ export class ApuestasCronService {
     await ctx.reply(msg, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
+        [Markup.button.callback('🧠 Dictamen Gemini AI', 'opt_gemini_nba')],
         [Markup.button.callback('📋 Próximos Partidos', 'opt_nba_partidos')],
         [Markup.button.callback('💎 Ver Apuestas con Valor (+EV)', 'opt_nba_valor')],
         [Markup.button.callback('« Volver a NBA', 'menu_nba')],
       ]),
+    });
+  }
+
+  @Action('opt_gemini_nba')
+  async accionGeminiNBA(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('🧠 <b>Apex Gemini AI analizando partidos de NBA...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.usSportsService.analizarDeporte('nba');
+    if (res.error || !res.juegos || res.juegos.length === 0) {
+      await ctx.reply(`⚠️ No hay partidos de NBA disponibles para analizar en este momento.`);
+      return;
+    }
+
+    const carteleraTexto = res.juegos.slice(0, 10).map((j, i) => {
+      const pr = j.props;
+      const spreadTxt = (pr?.spread_line ?? 0) > 0 ? `+${pr?.spread_line}` : `${pr?.spread_line}`;
+      return `${i + 1}. ${j.away_team} @ ${j.home_team} | Moneyline: ${j.away_team} ${j.prob_away}% (${j.odds_away}) vs ${j.home_team} ${j.prob_home}% (${j.odds_home})` +
+             (pr ? ` | Spread (${spreadTxt} pts): ${j.home_team} ${pr.cover_home_prob}% vs ${j.away_team} ${pr.cover_away_prob}% | Totales ${pr.total_line} pts: Over ${pr.over_prob}%, Under ${pr.under_prob}% | Margen: 6+ pts (${pr.margen_6_mas_prob}%), 1-5 pts (${pr.margen_1_5_prob}%) | Prop: ${pr.jugada_clave}` : '') +
+             (j.has_value ? ` | VALOR +EV: ${j.value_pick} (+${j.value_edge}%)` : '');
+    }).join('\n');
+
+    const dictamen = await this.geminiService.analizarCartelera('NBA', carteleraTexto);
+
+    await ctx.reply(`🧠 <b>DICTAMEN QUIRÚRGICO GEMINI AI | NBA</b>\n\n${dictamen}`, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_nba_estrategia')],
+        [Markup.button.callback('📋 Próximos Partidos', 'opt_nba_partidos')],
+        [Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
+      ]),
+    }).catch(async () => {
+      await ctx.reply(`🧠 DICTAMEN GEMINI AI | NBA:\n\n${dictamen}`, {
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🎯 Ver Boletos Listos', 'opt_nba_estrategia')],
+          [Markup.button.callback('🔙 Volver a NBA', 'menu_nba')],
+        ]),
+      });
     });
   }
 
