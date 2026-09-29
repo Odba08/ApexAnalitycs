@@ -69,7 +69,13 @@ export class SportsApiService {
 
       try {
         const respuesta = await axios.get(url);
-        if (respuesta.data && Array.isArray(respuesta.data.result) && respuesta.data.result.length > 0) {
+        if (
+          respuesta.data &&
+          !respuesta.data.error &&
+          Array.isArray(respuesta.data.result) &&
+          respuesta.data.result.length > 0 &&
+          !respuesta.data.result[0]?.msg
+        ) {
           matches = respuesta.data.result;
         }
       } catch (apiErr: any) {

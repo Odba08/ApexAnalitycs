@@ -368,6 +368,7 @@ export class ApuestasCronService {
       'ufc', 'mma', 'pelea', 'combate', 'peleador', 'round', 'asaltos', 'ko', 'tko', 'sumision', 'sumisión',
       'octagono', 'octágono', 'vettori', 'talbott', 'mcgee', 'mcghee', 'ribovics', 'pinas', 'soldic',
       'naurdiev', 'pulyaev', 'dos anjos', 'hernandez', 'khaos', 'nolan', 'green', 'figueiredo',
+      'silva', 'nathalia', 'cong', 'wang', 'blanchfield', 'fiorot', 'grasso', 'shevchenko',
     ];
     const esUFC = ufcKeywords.some((k) => pLower.includes(k));
 
@@ -418,6 +419,10 @@ export class ApuestasCronService {
     const esF1 = f1Keywords.some((k) => pLower.includes(k));
 
     const algunoEspecifico = esUFC || esMLB || esNFL || esNBA || esFutbol || esF1;
+
+    if (algunoEspecifico) {
+      lineas.push('⚠️ INSTRUCCIÓN DE ENFOQUE: El usuario pregunta sobre un tema, equipo o combate específico. Centra tu análisis en responder a fondo esa consulta con criterio y profundidad, sin volcar carteleras ajenas ni boletos de otros deportes.\n');
+    }
 
     // 1. Contexto FÚTBOL
     if (esFutbol || !algunoEspecifico) {
@@ -2556,7 +2561,7 @@ export class ApuestasCronService {
     });
   }
 
-  @Action(/liga_(.*)/)
+  @Action(/^liga_(.*)/)
   async accionOpcionesLiga(@Ctx() ctx: Context) {
     await ctx.answerCbQuery().catch(() => {});
     const match = (ctx as Context & { match?: RegExpMatchArray }).match;
@@ -2612,7 +2617,7 @@ export class ApuestasCronService {
     );
   }
 
-  @Action(/opt_estrategia_(.*)/)
+  @Action(/^opt_estrategia_(.*)/)
   async accionEstrategiaLiga(@Ctx() ctx: Context) {
     await ctx.answerCbQuery().catch(() => {});
     const match = (ctx as Context & { match?: RegExpMatchArray }).match;
@@ -2624,7 +2629,7 @@ export class ApuestasCronService {
     await this.procesarEstrategiaLiga(ligaInfo, ctx, ligaKey);
   }
 
-  @Action(/opt_apuestas_(.*)/)
+  @Action(/^opt_apuestas_(.*)/)
   async accionApuestasLiga(@Ctx() ctx: Context) {
     await ctx.answerCbQuery().catch(() => {});
     const match = (ctx as Context & { match?: RegExpMatchArray }).match;
@@ -2636,7 +2641,7 @@ export class ApuestasCronService {
     await this.procesarApuestasDeLiga(ligaInfo, ctx, ligaKey);
   }
 
-  @Action(/opt_gemini_liga_(.*)/)
+  @Action(/^opt_gemini_liga_(.*)/)
   async accionGeminiLiga(@Ctx() ctx: Context) {
     await ctx.answerCbQuery().catch(() => {});
     const match = (ctx as Context & { match?: RegExpMatchArray }).match;
@@ -2677,7 +2682,7 @@ export class ApuestasCronService {
     });
   }
 
-  @Action(/opt_tabla_(.*)/)
+  @Action(/^opt_tabla_(.*)/)
   async accionTablaLiga(@Ctx() ctx: Context) {
     await ctx.answerCbQuery().catch(() => {});
     const match = (ctx as Context & { match?: RegExpMatchArray }).match;
@@ -2717,7 +2722,7 @@ export class ApuestasCronService {
     });
   }
 
-  @Action(/opt_partidos_(.*)/)
+  @Action(/^opt_partidos_(.*)/)
   async accionPartidosLiga(@Ctx() ctx: Context) {
     await ctx.answerCbQuery().catch(() => {});
     const match = (ctx as Context & { match?: RegExpMatchArray }).match;
@@ -2751,7 +2756,7 @@ export class ApuestasCronService {
     });
   }
 
-  @Action(/opt_resultados_(.*)/)
+  @Action(/^opt_resultados_(.*)/)
   async accionResultadosLiga(@Ctx() ctx: Context) {
     await ctx.answerCbQuery().catch(() => {});
     const match = (ctx as Context & { match?: RegExpMatchArray }).match;
@@ -2823,7 +2828,7 @@ export class ApuestasCronService {
     );
   }
 
-  @Action(/eq_(.*)/)
+  @Action(/^eq_(.*)/)
   async accionSeleccionarEquipo(@Ctx() ctx: Context) {
     await ctx.answerCbQuery().catch(() => {});
     const match = (ctx as any).match;
@@ -2862,7 +2867,7 @@ export class ApuestasCronService {
     );
   }
 
-  @Action(/top_(.*)/)
+  @Action(/^top_(.*)/)
   async accionTopFiltro(@Ctx() ctx: Context) {
     await ctx.answerCbQuery().catch(() => {});
     const match = (ctx as any).match;
