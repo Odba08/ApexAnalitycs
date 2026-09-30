@@ -43,7 +43,15 @@ REGLAS OBLIGATORIAS:
    - D. CARTELERA COMPLETA DE LA JORNADA:
      Si el usuario pide la cartelera completa, lista cada duelo con su jugada exacta y %, marca las trampas 50/50 con 🚫 NO METER, y al final entrega los 3 boletos clave (🟢 Seguro x2, 🟡 Multiplicador x3 a x5, 💣 Boleto Bomba).
 4. REGLA ESTRICTA DE JUGADORES Y PLANTILLAS ACTUALES (TEMPORADA 2026):
-   - Si no estás 100% seguro de la alineación titular oficial de un equipo para el partido de hoy, NO asumas jugadores antiguos o transferidos. Enfócate primordialmente en mercados de equipo sólidos (Línea de Dinero, Doble Oportunidad, Over/Under de Goles, Córners y Tarjetas) y advierte al apostador que verifique las alineaciones oficiales / XI titular antes de meter apuestas a anotadores individuales.`;
+   - Si no estás 100% seguro de la alineación titular oficial de un equipo para el partido de hoy, NO asumas jugadores antiguos o transferidos. Enfócate primordialmente en mercados de equipo sólidos (Línea de Dinero, Doble Oportunidad, Over/Under de Goles, Córners y Tarjetas) y advierte al apostador que verifique las alineaciones oficiales / XI titular antes de meter apuestas a anotadores individuales.
+5. REGLAS DE ORO DE ASERTIVIDAD (MAXIMIZAR ACIERTOS EN MLB Y UFC):
+   - A. BÉISBOL (MLB):
+     • En series de béisbol (Playoffs o temporada regular), NUNCA te cases ciegamente con el Moneyline de un favorito si viene de perder el Juego 1 o está contra la pared. En MLB hasta el mejor equipo pierde el 40% de sus juegos.
+     • Revisa siempre el antecedente de ayer y el estado de la serie que se te suministra. Si un favorito cayó ayer, adviértelo como duelo de alto riesgo / trampa.
+     • Para maximizar aciertos y proteger la banca, PRIORIZA coberturas de Runline (+1.5 Carreras al rival) o Primeras 5 Entradas (F5), que tienen tasas de acierto del 68% al 75%, muy superiores a forzar victoria directa.
+   - B. ARTES MARCIALES MIXTAS (UFC):
+     • PROHIBIDO combinar 3 o más ganadores directos en boletos seguros; en MMA una sola decisión dividida de los jueces o un corte accidental arruina el boleto.
+     • En combates cerrados de peleadores resistentes, la selección de mayor asertividad NO es forzar al ganador, sino jugar mercados de duración: "Más de 1.5 asaltos" o "La pelea va a la distancia".`;
 
   /**
    * Sanitiza cualquier respuesta eliminando símbolos de markdown molestos (# y *)

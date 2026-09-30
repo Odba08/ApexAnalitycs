@@ -49,6 +49,11 @@ export interface JuegoAnalizado {
   value_edge?: number;
   value_side?: 'HOME' | 'AWAY' | null;
   props?: PropsDeporteUS;
+  serie_info?: string;
+  ronda_playoff?: string;
+  marcador_ayer?: string;
+  prob_mercado_home?: number;
+  prob_mercado_away?: number;
 }
 
 export interface AnalisisUSResponse {
@@ -107,6 +112,69 @@ export class UsSportsService {
         return 'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard';
       case 'nba':
         return 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard';
+    }
+  }
+
+  async obtenerContextoSerieMLB(): Promise<Map<string, { series: string; note: string; scoreAyer: string }>> {
+    try {
+      const hoyRes = await axios.get('https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard', {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        timeout: 10000,
+      });
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const ayerStr = `${yyyy}${mm}${dd}`;
+
+      let ayerEvents: any[] = [];
+      try {
+        const ayerRes = await axios.get(
+          `https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates=${ayerStr}`,
+          { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 10000 },
+        );
+        ayerEvents = ayerRes.data?.events || [];
+      } catch (_) {}
+
+      const mapa = new Map<string, { series: string; note: string; scoreAyer: string }>();
+      for (const e of hoyRes.data?.events || []) {
+        const comp = e.competitions?.[0];
+        if (!comp) continue;
+        const cA = comp.competitors?.find((c: any) => c.homeAway === 'away');
+        const cH = comp.competitors?.find((c: any) => c.homeAway === 'home');
+        if (!cA || !cH) continue;
+
+        const series = comp.series?.summary || '';
+        const note = comp.notes?.[0]?.headline || '';
+
+        const yMatch = ayerEvents.find((ye: any) => {
+          const yc = ye.competitions?.[0];
+          const ycA = yc?.competitors?.find((c: any) => c.homeAway === 'away');
+          const ycH = yc?.competitors?.find((c: any) => c.homeAway === 'home');
+          return (
+            (ycA?.team?.id === cA.team.id && ycH?.team?.id === cH.team.id) ||
+            (ycA?.team?.id === cH.team.id && ycH?.team?.id === cA.team.id)
+          );
+        });
+
+        let scoreAyer = '';
+        if (yMatch) {
+          const yc = yMatch.competitions?.[0];
+          const ycA = yc?.competitors?.find((c: any) => c.homeAway === 'away');
+          const ycH = yc?.competitors?.find((c: any) => c.homeAway === 'home');
+          if (ycA && ycH) {
+            scoreAyer = `${ycA.team.displayName} ${ycA.score} - ${ycH.team.displayName} ${ycH.score} (${yc.status?.type?.detail || 'Final'})`;
+          }
+        }
+
+        const key = `${cA.team.displayName} @ ${cH.team.displayName}`.toLowerCase();
+        mapa.set(key, { series, note, scoreAyer });
+      }
+      return mapa;
+    } catch (e: any) {
+      this.logger.warn(`No se pudo obtener contexto de serie MLB de ESPN: ${e.message}`);
+      return new Map();
     }
   }
 
@@ -198,7 +266,65 @@ export class UsSportsService {
       };
 
       if (resultado.juegos) {
+        let seriesMap: Map<string, { series: string; note: string; scoreAyer: string }> | null = null;
+        if (deporte === 'mlb') {
+          seriesMap = await this.obtenerContextoSerieMLB();
+        }
+
         for (const j of resultado.juegos) {
+          // Calibración dinámica de probabilidad con cuotas reales de Las Vegas
+          if (j.odds_home > 1.0 && j.odds_away > 1.0) {
+            const impH = 1 / j.odds_home;
+            const impA = 1 / j.odds_away;
+            const sumImp = impH + impA;
+            j.prob_mercado_home = Math.round((impH / sumImp) * 1000) / 10;
+            j.prob_mercado_away = Math.round((impA / sumImp) * 1000) / 10;
+
+            if (deporte === 'mlb') {
+              // Ponderar 70% mercado real (abridores hoy, dinero real) + 30% modelo estático
+              const pCalibH = Math.round((j.prob_mercado_home * 0.7 + j.prob_home * 0.3) * 10) / 10;
+              const pCalibA = Math.round((100 - pCalibH) * 10) / 10;
+              j.prob_home = pCalibH;
+              j.prob_away = pCalibA;
+            }
+          }
+
+          // Asignar contexto de serie y resultado de ayer de ESPN
+          if (seriesMap) {
+            const getDist = (name: string) => {
+              const l = name.toLowerCase();
+              if (l.includes('white sox')) return 'white sox';
+              if (l.includes('red sox')) return 'red sox';
+              return l.split(' ').pop() || l;
+            };
+            const hDist = getDist(j.home_team);
+            const aDist = getDist(j.away_team);
+
+            // 1. Coincidencia exacta de ambos equipos
+            for (const [k, v] of seriesMap.entries()) {
+              const kLower = k.toLowerCase();
+              if (kLower.includes(hDist) && kLower.includes(aDist)) {
+                j.serie_info = v.series;
+                j.ronda_playoff = v.note;
+                j.marcador_ayer = v.scoreAyer;
+                break;
+              }
+            }
+
+            // 2. Coincidencia secundaria si no se emparejaron ambos
+            if (!j.serie_info) {
+              for (const [k, v] of seriesMap.entries()) {
+                const kLower = k.toLowerCase();
+                if (kLower.includes(hDist) || kLower.includes(aDist)) {
+                  j.serie_info = v.series;
+                  j.ronda_playoff = v.note;
+                  j.marcador_ayer = v.scoreAyer;
+                  break;
+                }
+              }
+            }
+          }
+
           if (j.has_value) {
             await this.registrarAlertaUsSport(deporte, j);
           }

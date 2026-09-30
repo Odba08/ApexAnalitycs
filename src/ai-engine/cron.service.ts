@@ -504,9 +504,12 @@ export class ApuestasCronService {
             const favOdds = isHomeFav ? j.odds_home : j.odds_away;
             const diff = Math.abs(j.prob_home - j.prob_away);
             const esTrampa = diff <= 5 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+            const infoSerie = j.serie_info ? ` [${j.serie_info}]` : '';
+            const ronda = j.ronda_playoff ? ` (${j.ronda_playoff})` : '';
+            const ayer = j.marcador_ayer ? ` | Antecedente Ayer: ${j.marcador_ayer}` : '';
             lineas.push(
-              `${idx + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
-              (pr ? ` | Runline: ${pr.runline_home} (${pr.runline_home_prob}%) vs ${pr.runline_away} (${pr.runline_away_prob}%) | Totales: ${pr.total_line} carr (Over ${pr.over_prob}%, Under ${pr.under_prob}%) | Jugada sugerida: ${pr.jugada_clave}` : '') +
+              `${idx + 1}. ${j.away_team} @ ${j.home_team}${ronda}${infoSerie}${ayer} | Probabilidad Calibrada: ${fav} (${favProb}% @ ${favOdds})` +
+              (pr ? ` | Runline Seguro: ${pr.runline_away} (${pr.runline_away_prob}%) | Totales: ${pr.total_line} carr (Over ${pr.over_prob}%, Under ${pr.under_prob}%) | Jugada sugerida: ${pr.jugada_clave}` : '') +
               esTrampa,
             );
           });
@@ -946,19 +949,48 @@ export class ApuestasCronService {
 
   private procesarBoletosDeportivos(
     deporte: string,
-    matches: { fav: string; rival: string; favOdds: number; favProb: number; diff: number; prop?: string; hasValue?: boolean }[],
+    matches: {
+      fav: string;
+      rival: string;
+      favOdds: number;
+      favProb: number;
+      diff: number;
+      prop?: string;
+      hasValue?: boolean;
+      mercado?: string;
+      alerta?: string;
+      lostYesterday?: boolean;
+      scoreAyer?: string;
+    }[],
     umbralTrampaDiff: number = 8,
   ) {
     const trampas: { duelo: string; razon: string }[] = [];
-    const validos: { titulo: string; rival: string; cuota: number; prob: number; prop?: string }[] = [];
+    const validos: {
+      titulo: string;
+      rival: string;
+      cuota: number;
+      prob: number;
+      prop?: string;
+      mercado?: string;
+      alerta?: string;
+      scoreRank: number;
+      lostYesterday: boolean;
+    }[] = [];
 
     for (const m of matches) {
-      if (m.diff <= umbralTrampaDiff) {
+      if (m.lostYesterday) {
+        trampas.push({
+          duelo: `${m.fav} vs ${m.rival}`,
+          razon: `Alerta de serie: ${m.fav} viene de caer ayer (${m.scoreAyer || 'en el duelo previo'}). Serie caliente y rival con ventaja/inercia.`,
+        });
+      }
+
+      if (m.diff <= umbralTrampaDiff && !m.mercado?.includes('Runline')) {
         trampas.push({
           duelo: `${m.fav} vs ${m.rival}`,
           razon: `Paridad extrema (diferencia de solo ${Math.round(m.diff)}%). Duelo 50/50, trampa en ganador directo.`,
         });
-      } else if (!m.hasValue && m.favProb < 55 && m.favOdds <= 1.65) {
+      } else if (!m.hasValue && m.favProb < 55 && m.favOdds <= 1.65 && !m.mercado?.includes('Runline')) {
         trampas.push({
           duelo: `${m.fav} vs ${m.rival}`,
           razon: `Falso favorito (${m.fav} @ ${m.favOdds}). Paga muy poco para una probabilidad de solo ${Math.round(m.favProb)}%.`,
@@ -970,14 +1002,19 @@ export class ApuestasCronService {
           cuota: m.favOdds,
           prob: Math.round(m.favProb),
           prop: m.prop,
+          mercado: m.mercado || 'Ganador Directo',
+          alerta: m.alerta,
+          scoreRank: (m.lostYesterday ? -20 : 0) + m.favProb,
+          lostYesterday: !!m.lostYesterday,
         });
       }
     }
 
-    validos.sort((a, b) => b.prob - a.prob);
+    validos.sort((a, b) => b.scoreRank - a.scoreRank);
 
-    // 1. BOLETO SEGURO (Las 2 más certeras)
-    const seguroSels = validos.slice(0, 2);
+    // 1. BOLETO SEGURO (Las 2 más certeras, priorizando las que NO perdieron ayer)
+    const seguroCand = validos.filter((v) => !v.lostYesterday);
+    const seguroSels = seguroCand.length >= 2 ? seguroCand.slice(0, 2) : validos.slice(0, 2);
     const seguroCuota = seguroSels.reduce((acc, s) => acc * s.cuota, 1);
     const seguroProb = seguroSels.length >= 2 ? Math.round((seguroSels[0].prob * seguroSels[1].prob) / 100) : (seguroSels[0]?.prob || 0);
 
@@ -1063,8 +1100,10 @@ export class ApuestasCronService {
       body = `• <i>No hay suficientes selecciones disponibles para este boleto en la cartelera de hoy.</i>\n`;
     } else {
       boleto.selecciones.forEach((s: any, idx: number) => {
+        const merc = s.mercado || 'Ganador Directo';
         body += `<b>Leg ${idx + 1}: ${s.titulo}</b> (vs ${s.rival})\n` +
-                `  Jugada: <b>Ganador Directo</b> | Cuota: <b>${s.cuota}</b> | Certeza: <b>${s.prob}%</b>\n`;
+                `  Jugada: <b>${merc}</b> | Cuota: <b>${s.cuota}</b> | Certeza: <b>${s.prob}%</b>\n`;
+        if (s.alerta) body += `  ⚠️ <i>${s.alerta}</i>\n`;
         if (s.prop) body += `  Prop sugerida: <i>${s.prop}</i>\n`;
         body += `\n`;
       });
@@ -1087,7 +1126,9 @@ export class ApuestasCronService {
       msg += `<i>No hay suficientes duelos de alta certeza en este momento.</i>\n\n`;
     } else {
       pack.seguro.selecciones.forEach((s: any, i: number) => {
-        msg += `  • Leg ${i + 1}: <b>${s.titulo}</b> @ ${s.cuota} (${s.prob}%)\n`;
+        const merc = s.mercado && s.mercado !== 'Ganador Directo' ? ` [${s.mercado}]` : '';
+        msg += `  • Leg ${i + 1}: <b>${s.titulo}</b>${merc} @ ${s.cuota} (${s.prob}%)\n`;
+        if (s.alerta) msg += `    <i>⚠️ ${s.alerta}</i>\n`;
       });
       msg += `  💰 <b>Cuota: ${pack.seguro.cuotaTotal}</b> | Certeza: ~${pack.seguro.probEstimada}% | Riesgo: <b>BAJO</b>\n\n`;
     }
@@ -1098,7 +1139,9 @@ export class ApuestasCronService {
       msg += `<i>No hay suficientes duelos disponibles para multiplicador.</i>\n\n`;
     } else {
       pack.multi.selecciones.forEach((s: any, i: number) => {
-        msg += `  • Leg ${i + 1}: <b>${s.titulo}</b> @ ${s.cuota} (${s.prob}%)\n`;
+        const merc = s.mercado && s.mercado !== 'Ganador Directo' ? ` [${s.mercado}]` : '';
+        msg += `  • Leg ${i + 1}: <b>${s.titulo}</b>${merc} @ ${s.cuota} (${s.prob}%)\n`;
+        if (s.alerta) msg += `    <i>⚠️ ${s.alerta}</i>\n`;
       });
       msg += `  💰 <b>Cuota: ${pack.multi.cuotaTotal}</b> | Certeza: ~${pack.multi.probEstimada}% | Riesgo: <b>MEDIO</b>\n\n`;
     }
@@ -1110,7 +1153,8 @@ export class ApuestasCronService {
     } else {
       msg += `  <i>Combina toda la cartelera descartando las trampas 50/50:</i>\n`;
       pack.bomba.selecciones.slice(0, 5).forEach((s: any) => {
-        msg += `  • <b>${s.titulo}</b> @ ${s.cuota}\n`;
+        const merc = s.mercado && s.mercado !== 'Ganador Directo' ? ` [${s.mercado}]` : '';
+        msg += `  • <b>${s.titulo}</b>${merc} @ ${s.cuota}\n`;
       });
       if (pack.bomba.selecciones.length > 5) {
         msg += `  • <i>...y ${pack.bomba.selecciones.length - 5} selecciones más</i>\n`;
@@ -1884,18 +1928,77 @@ export class ApuestasCronService {
   private async obtenerPackMLB() {
     const res = await this.usSportsService.analizarDeporte('mlb');
     if (res.error || !res.juegos || res.juegos.length === 0) return null;
-    const matches = res.juegos.map((j) => {
+    const matches: any[] = [];
+
+    for (const j of res.juegos) {
       const isHomeFav = j.prob_home >= j.prob_away;
-      return {
-        fav: isHomeFav ? j.home_team : j.away_team,
-        rival: isHomeFav ? j.away_team : j.home_team,
-        favOdds: isHomeFav ? j.odds_home : j.odds_away,
-        favProb: Math.max(j.prob_home, j.prob_away),
-        diff: Math.abs(j.prob_home - j.prob_away),
+      const favName = isHomeFav ? j.home_team : j.away_team;
+      const rivalName = isHomeFav ? j.away_team : j.home_team;
+      const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+      const favProb = Math.max(j.prob_home, j.prob_away);
+      const diff = Math.abs(j.prob_home - j.prob_away);
+
+      // Detectar si el favorito cayó ayer en la serie
+      let lostYesterday = false;
+      let alerta = '';
+      if (j.marcador_ayer) {
+        const getDist = (name: string) => {
+          const l = name.toLowerCase();
+          if (l.includes('white sox')) return 'white sox';
+          if (l.includes('red sox')) return 'red sox';
+          return l.split(' ').pop() || l;
+        };
+        const fDist = getDist(favName);
+        const matchScores = j.marcador_ayer.match(/(\d+)\s*-\s*.*?(\d+)/);
+        if (matchScores) {
+          const s1 = parseInt(matchScores[1], 10);
+          const s2 = parseInt(matchScores[2], 10);
+          const parts = j.marcador_ayer.split('-');
+          const p1 = parts[0]?.toLowerCase() || '';
+          const p2 = parts[1]?.toLowerCase() || '';
+          const p1Fav = p1.includes(fDist);
+          const p2Fav = p2.includes(fDist);
+          if ((p1Fav && s1 < s2) || (p2Fav && s2 < s1)) {
+            lostYesterday = true;
+            alerta = `Viene de caer ayer (${j.marcador_ayer}). Duelo bajo máxima presión en la serie.`;
+          }
+        }
+      }
+
+      matches.push({
+        fav: favName,
+        rival: rivalName,
+        favOdds,
+        favProb,
+        diff,
         prop: j.props?.jugada_clave,
         hasValue: j.has_value,
-      };
-    });
+        lostYesterday,
+        alerta,
+        scoreAyer: j.marcador_ayer,
+        serieInfo: j.serie_info,
+        mercado: 'Ganador Directo',
+      });
+
+      // Incluir cobertura Runline (+1.5) si tiene certeza >= 65%
+      if (j.props && j.props.runline_away_prob && j.props.runline_away_prob >= 65 && j.props.runline_away) {
+        const rlTeam = j.props.runline_away.split('+')[0]?.trim() || j.away_team;
+        const estOdds = j.odds_away >= 2.2 ? 1.62 : j.odds_away >= 1.9 ? 1.50 : 1.40;
+        matches.push({
+          fav: `${rlTeam}`,
+          rival: favName,
+          favOdds: estOdds,
+          favProb: j.props.runline_away_prob,
+          diff: 20,
+          prop: j.props.jugada_clave,
+          hasValue: false,
+          lostYesterday: false,
+          alerta: 'Cobertura Runline (+1.5): Gana si el equipo gana o pierde por solo 1 carrera',
+          mercado: 'Runline (+1.5 Carreras)',
+        });
+      }
+    }
+
     return this.procesarBoletosDeportivos('MLB', matches, 5);
   }
 
@@ -2109,8 +2212,15 @@ export class ApuestasCronService {
     res.juegos.slice(0, 8).forEach((j, idx) => {
       const fecha = this.formatFechaCorta(j.commence_time);
       const pr = j.props;
-      msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>${fecha}\n` +
-             `• Moneyline: <b>${j.prob_away}%</b> (${j.odds_away}) vs <b>${j.prob_home}%</b> (${j.odds_home})\n`;
+      msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>${fecha}\n`;
+
+      if (j.ronda_playoff || j.serie_info || j.marcador_ayer) {
+        const serieText = [j.ronda_playoff, j.serie_info].filter(Boolean).join(' | ');
+        if (serieText) msg += `🏆 <i>[${serieText}]</i>\n`;
+        if (j.marcador_ayer) msg += `⏮️ <i>Último juego: ${j.marcador_ayer}</i>\n`;
+      }
+
+      msg += `• Moneyline: <b>${j.prob_away}%</b> (${j.odds_away}) vs <b>${j.prob_home}%</b> (${j.odds_home})\n`;
 
       if (pr) {
         msg += `• Runline (+/- 1.5): ${pr.runline_home} (<b>${pr.runline_home_prob}%</b>) | ${pr.runline_away} (<b>${pr.runline_away_prob}%</b>)\n` +
