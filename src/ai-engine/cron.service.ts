@@ -513,6 +513,17 @@ export class ApuestasCronService {
               esTrampa,
             );
           });
+
+          // Inyectar boletos oficiales generados por la app para MLB
+          const packMlb = await this.obtenerPackMLB().catch(() => null);
+          if (packMlb && packMlb.seguro.selecciones.length > 0) {
+            lineas.push('\n[RECOMENDACIÓN OFICIAL ACTUAL DEL MOTOR APEX MLB]:');
+            lineas.push(`• Boleto Seguro Oficial (x2) [Cuota ${packMlb.seguro.cuotaTotal}]: ` + packMlb.seguro.selecciones.map(s => `${s.titulo} [${s.mercado || 'Ganador'}] @ ${s.cuota}`).join(' + '));
+            lineas.push(`• Boleto Multiplicador Oficial [Cuota ${packMlb.multi.cuotaTotal}]: ` + packMlb.multi.selecciones.map(s => `${s.titulo} [${s.mercado || 'Ganador'}] @ ${s.cuota}`).join(' + '));
+            if (packMlb.trampas.length > 0) {
+              lineas.push(`• Trampas/Alertas detectadas por la app: ` + packMlb.trampas.map(t => `${t.duelo} (${t.razon})`).join('; '));
+            }
+          }
         }
       } catch (_) {}
     }
@@ -537,6 +548,17 @@ export class ApuestasCronService {
               esTrampa,
             );
           });
+
+          // Inyectar boletos oficiales generados por la app para UFC
+          const packUfc = await this.obtenerPackUFC().catch(() => null);
+          if (packUfc && packUfc.seguro.selecciones.length > 0) {
+            lineas.push('\n[RECOMENDACIÓN OFICIAL ACTUAL DEL MOTOR APEX UFC]:');
+            lineas.push(`• Boleto Seguro Oficial (x2) [Cuota ${packUfc.seguro.cuotaTotal}]: ` + packUfc.seguro.selecciones.map(s => `${s.titulo} [${s.mercado || 'Ganador'}] @ ${s.cuota}`).join(' + '));
+            lineas.push(`• Boleto Multiplicador Oficial [Cuota ${packUfc.multi.cuotaTotal}]: ` + packUfc.multi.selecciones.map(s => `${s.titulo} [${s.mercado || 'Ganador'}] @ ${s.cuota}`).join(' + '));
+            if (packUfc.trampas.length > 0) {
+              lineas.push(`• Trampas/Alertas detectadas por la app: ` + packUfc.trampas.map(t => `${t.duelo} (${t.razon})`).join('; '));
+            }
+          }
         }
       } catch (_) {}
     }
@@ -1309,7 +1331,7 @@ export class ApuestasCronService {
   @Action('opt_gemini_ufc')
   async accionGeminiUFC(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('🧠 <b>Apex Gemini AI analizando combates de UFC...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('🧠 <b>Apex Gemini AI auditando las recomendaciones y cartelera de UFC...</b>', { parse_mode: 'HTML' });
 
     const data = await this.ufcService.obtenerCarteleraUFC();
     if (data.error || !data.analisis_ufc || data.analisis_ufc.length === 0) {
@@ -1330,10 +1352,13 @@ export class ApuestasCronService {
              esTrampa;
     }).join('\n');
 
-    const dictamen = await this.geminiService.analizarCartelera('UFC', carteleraTexto);
+    const pack = await this.obtenerPackUFC();
+    const dictamen = pack && pack.seguro.selecciones.length > 0
+      ? await this.geminiService.auditarRecomendacionesApp('UFC', pack, carteleraTexto)
+      : await this.geminiService.analizarCartelera('UFC', carteleraTexto);
     const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI | UFC</b>\n\n${dictamenLimpio}`, {
+    await ctx.reply(`🧠 <b>AUDITORÍA GEMINI AI | UFC</b>\n\n${dictamenLimpio}`, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi')],
@@ -1755,7 +1780,7 @@ export class ApuestasCronService {
   @Action('opt_gemini_nfl')
   async accionGeminiNFL(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('🧠 <b>Apex Gemini AI analizando partidos de NFL...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('🧠 <b>Apex Gemini AI auditando las recomendaciones y cartelera de NFL...</b>', { parse_mode: 'HTML' });
 
     const res = await this.usSportsService.analizarDeporte('nfl');
     if (res.error || !res.juegos || res.juegos.length === 0) {
@@ -1776,10 +1801,13 @@ export class ApuestasCronService {
              esTrampa;
     }).join('\n');
 
-    const dictamen = await this.geminiService.analizarCartelera('NFL', carteleraTexto);
+    const pack = await this.obtenerPackNFL();
+    const dictamen = pack && pack.seguro.selecciones.length > 0
+      ? await this.geminiService.auditarRecomendacionesApp('NFL', pack, carteleraTexto)
+      : await this.geminiService.analizarCartelera('NFL', carteleraTexto);
     const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI | NFL</b>\n\n${dictamenLimpio}`, {
+    await ctx.reply(`🧠 <b>AUDITORÍA GEMINI AI | NFL</b>\n\n${dictamenLimpio}`, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi')],
@@ -2108,7 +2136,7 @@ export class ApuestasCronService {
   @Action('opt_gemini_mlb')
   async accionGeminiMLB(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('🧠 <b>Apex Gemini AI analizando la cartelera de MLB...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('🧠 <b>Apex Gemini AI auditando las recomendaciones y cartelera de MLB...</b>', { parse_mode: 'HTML' });
 
     const res = await this.usSportsService.analizarDeporte('mlb');
     if (res.error || !res.juegos || res.juegos.length === 0) {
@@ -2124,15 +2152,20 @@ export class ApuestasCronService {
       const favOdds = isHomeFav ? j.odds_home : j.odds_away;
       const diff = Math.abs(j.prob_home - j.prob_away);
       const esTrampa = diff <= 5 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
-      return `${i + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+      const infoSerie = j.serie_info ? ` [${j.serie_info}]` : '';
+      const ayer = j.marcador_ayer ? ` | Ayer: ${j.marcador_ayer}` : '';
+      return `${i + 1}. ${j.away_team} @ ${j.home_team}${infoSerie}${ayer} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
              (pr ? ` | Runline: ${pr.runline_home} (${pr.runline_home_prob}%) vs ${pr.runline_away} (${pr.runline_away_prob}%) | Totales: ${pr.total_line} carr | Jugada: ${pr.jugada_clave}` : '') +
              esTrampa;
     }).join('\n');
 
-    const dictamen = await this.geminiService.analizarCartelera('MLB', carteleraTexto);
+    const pack = await this.obtenerPackMLB();
+    const dictamen = pack && pack.seguro.selecciones.length > 0
+      ? await this.geminiService.auditarRecomendacionesApp('MLB', pack, carteleraTexto)
+      : await this.geminiService.analizarCartelera('MLB', carteleraTexto);
     const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI | MLB</b>\n\n${dictamenLimpio}`, {
+    await ctx.reply(`🧠 <b>AUDITORÍA GEMINI AI | MLB</b>\n\n${dictamenLimpio}`, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi')],
@@ -2406,7 +2439,7 @@ export class ApuestasCronService {
   @Action('opt_gemini_nba')
   async accionGeminiNBA(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('🧠 <b>Apex Gemini AI analizando partidos de NBA...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('🧠 <b>Apex Gemini AI auditando las recomendaciones y cartelera de NBA...</b>', { parse_mode: 'HTML' });
 
     const res = await this.usSportsService.analizarDeporte('nba');
     if (res.error || !res.juegos || res.juegos.length === 0) {
@@ -2427,10 +2460,13 @@ export class ApuestasCronService {
              esTrampa;
     }).join('\n');
 
-    const dictamen = await this.geminiService.analizarCartelera('NBA', carteleraTexto);
+    const pack = await this.obtenerPackNBA();
+    const dictamen = pack && pack.seguro.selecciones.length > 0
+      ? await this.geminiService.auditarRecomendacionesApp('NBA', pack, carteleraTexto)
+      : await this.geminiService.analizarCartelera('NBA', carteleraTexto);
     const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI | NBA</b>\n\n${dictamenLimpio}`, {
+    await ctx.reply(`🧠 <b>AUDITORÍA GEMINI AI | NBA</b>\n\n${dictamenLimpio}`, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi')],

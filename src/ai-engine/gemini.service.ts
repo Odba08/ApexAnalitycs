@@ -51,7 +51,13 @@ REGLAS OBLIGATORIAS:
      • Para maximizar aciertos y proteger la banca, PRIORIZA coberturas de Runline (+1.5 Carreras al rival) o Primeras 5 Entradas (F5), que tienen tasas de acierto del 68% al 75%, muy superiores a forzar victoria directa.
    - B. ARTES MARCIALES MIXTAS (UFC):
      • PROHIBIDO combinar 3 o más ganadores directos en boletos seguros; en MMA una sola decisión dividida de los jueces o un corte accidental arruina el boleto.
-     • En combates cerrados de peleadores resistentes, la selección de mayor asertividad NO es forzar al ganador, sino jugar mercados de duración: "Más de 1.5 asaltos" o "La pelea va a la distancia".`;
+     • En combates cerrados de peleadores resistentes, la selección de mayor asertividad NO es forzar al ganador, sino jugar mercados de duración: "Más de 1.5 asaltos" o "La pelea va a la distancia".
+6. REGLA FUNDAMENTAL DE ALINEACIÓN TOTAL CON LA APLICACIÓN (CERO CONTRADICCIONES):
+   - Tú eres el Analista Senior y Auditor de Inteligencia Artificial de Apex Analytics.
+   - NUNCA contradigas las recomendaciones que el motor cuantitativo de la aplicación preparó (Boleto Seguro, Multiplicador, Boletos de Liga o Descartes de Trampa).
+   - Si el usuario te pregunta "¿A quién le hago caso?", "¿A la app o a ti?", "¿Qué opinas de lo que recomendó el bot?", o te pide auditar la cartelera / boletos:
+     DEJA TOTALMENTE CLARO QUE LA APLICACIÓN Y LA IA ESTÁN 100% ALINEADAS. Valida, respalda y explica con argumentos tácticos y de rendimiento exactamente por qué las selecciones de la aplicación son las mejores y recomiéndale al usuario seguir el Boleto Seguro de la app con total confianza.
+   - Para preguntas analíticas libres, dudas tácticas de partidos, opiniones de peleadores o jugadores, conservas absoluta libertad para explicar a fondo y sin restricciones.`;
 
   /**
    * Sanitiza cualquier respuesta eliminando símbolos de markdown molestos (# y *)
@@ -139,6 +145,68 @@ Habla en lenguaje de apostador directo, sin tecnicismos ni fórmulas.`;
   /**
    * Responde a una consulta en lenguaje natural del usuario (ej: "¿Por qué McGhee?", "¿Qué opinas del Arsenal?")
    */
+
+  /**
+   * Audita, valida y explica tácticamente las recomendaciones oficiales generadas por el motor de la aplicación
+   */
+  async auditarRecomendacionesApp(
+    deporte: string,
+    boletosApp: {
+      seguro: { cuotaTotal: string; probEstimada: number; selecciones: any[] };
+      multi: { cuotaTotal: string; probEstimada: number; selecciones: any[] };
+      bomba?: { cuotaTotal: string; probReal?: number; probEstimada?: number; selecciones: any[] };
+      trampas: { duelo: string; razon: string }[];
+    },
+    contextoPartidos?: string,
+  ): Promise<string> {
+    let resumenBoletos = `RECOMENDACIONES OFICIALES GENERADAS POR EL MOTOR CUANTITATIVO DE APEX:\n`;
+
+    resumenBoletos += `\n🟢 BOLETO SEGURO (x2) DE LA APP (Cuota: ${boletosApp.seguro.cuotaTotal} | Certeza: ~${boletosApp.seguro.probEstimada}%):\n`;
+    boletosApp.seguro.selecciones.forEach((s, idx) => {
+      resumenBoletos += `  • Leg ${idx + 1}: ${s.titulo} (vs ${s.rival}) | Mercado: ${s.mercado || 'Ganador Directo'} @ ${s.cuota} (${s.prob}%)\n`;
+      if (s.alerta) resumenBoletos += `    Nota: ${s.alerta}\n`;
+    });
+
+    resumenBoletos += `\n🟡 BOLETO MULTIPLICADOR (x3 a x5) DE LA APP (Cuota: ${boletosApp.multi.cuotaTotal} | Certeza: ~${boletosApp.multi.probEstimada}%):\n`;
+    boletosApp.multi.selecciones.forEach((s, idx) => {
+      resumenBoletos += `  • Leg ${idx + 1}: ${s.titulo} (vs ${s.rival}) | Mercado: ${s.mercado || 'Ganador Directo'} @ ${s.cuota} (${s.prob}%)\n`;
+      if (s.alerta) resumenBoletos += `    Nota: ${s.alerta}\n`;
+    });
+
+    resumenBoletos += `\n🚫 DUELOS TRAMPA / DESCARTADOS POR LA APP:\n`;
+    if (!boletosApp.trampas || boletosApp.trampas.length === 0) {
+      resumenBoletos += `  • Ninguna trampa extrema detectada.\n`;
+    } else {
+      boletosApp.trampas.forEach((t) => {
+        resumenBoletos += `  • ${t.duelo}: ${t.razon}\n`;
+      });
+    }
+
+    const prompt = `AUDITORÍA Y VALIDACIÓN DE LAS RECOMENDACIONES DE LA APLICACIÓN (${deporte.toUpperCase()}):
+El usuario presionó el botón de analizar con IA para auditar y validar lo que la aplicación de Apex acaba de recomendar.
+IMPORTANTE: NO inventes otros boletos ni recomiendes selecciones que contradigan lo que el motor de la app preparó.
+Tu función como Analista Senior de Apex es auditar, validar y explicar tácticamente por qué estas selecciones exactas de la aplicación son las mejores jugadas.
+
+Estructura tu respuesta limpia para Telegram (sin ### ni asteriscos):
+
+1. 🟢 AUDITORÍA DEL BOLETO SEGURO (x2) DE APEX:
+   - Analiza las selecciones exactas que el motor puso en el Boleto Seguro.
+   - Explica con argumentos tácticos y de rendimiento por qué tienen sentido y por qué cubren la banca (por ejemplo, por qué el Runline +1.5 o la victoria directa es la vía más segura).
+   - Confirma la cuota combinada (${boletosApp.seguro.cuotaTotal}) y dale el visto bueno al apostador.
+
+2. 🟡 AUDITORÍA DEL BOLETO MULTIPLICADOR (x3 a x5) DE APEX:
+   - Valida las jugadas del multiplicador de la app y cómo equilibran retorno y probabilidad.
+
+3. 🚫 VALIDACIÓN DE TRAMPAS IDENTIFICADAS:
+   - Explica con criterio táctico por qué el motor acertó al descartar o alertar sobre esos duelos 50/50 o alertas de serie.
+
+4. 🎯 VEREDICTO DE APEX AI:
+   - Confirma que la Inteligencia Artificial y la aplicación están 100% alineadas: "Hazle caso al Boleto Seguro de la aplicación sin dudar".`;
+
+    const contextoTotal = `${resumenBoletos}\n\n${contextoPartidos ? `DATOS DE LA CARTELERA:\n${contextoPartidos}` : ''}`;
+    return this.consultarGemini(prompt, contextoTotal);
+  }
+
   async responderPreguntaUsuario(pregunta: string, contextoGlobal?: string): Promise<string> {
     const prompt = `El usuario realiza la siguiente consulta: "${pregunta}".
 Si es una pregunta analítica, duda táctica o de opinión sobre un duelo/equipo/peleador, dale una explicación profunda, técnica y fundamentada con total libertad de criterio. Si pide mercados combinados o Bet Builder, desglosa los mercados y crea la combinada con cuota total estimada. Si solo pide una respuesta rápida de sí/no o quién gana, sé directo.`;
