@@ -1331,7 +1331,7 @@ export class ApuestasCronService {
   @Action('opt_gemini_ufc')
   async accionGeminiUFC(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('🧠 <b>Apex Gemini AI auditando las recomendaciones y cartelera de UFC...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('🧠 <b>Gemini AI analizando todos los combates de UFC...</b>', { parse_mode: 'HTML' });
 
     const data = await this.ufcService.obtenerCarteleraUFC();
     if (data.error || !data.analisis_ufc || data.analisis_ufc.length === 0) {
@@ -1358,7 +1358,7 @@ export class ApuestasCronService {
       : await this.geminiService.analizarCartelera('UFC', carteleraTexto);
     const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>AUDITORÍA GEMINI AI | UFC</b>\n\n${dictamenLimpio}`, {
+    await ctx.reply(`🧠 <b>EL OJO DE GEMINI AI | UFC</b>\n\n${dictamenLimpio}`, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi')],
@@ -1780,7 +1780,7 @@ export class ApuestasCronService {
   @Action('opt_gemini_nfl')
   async accionGeminiNFL(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('🧠 <b>Apex Gemini AI auditando las recomendaciones y cartelera de NFL...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('🧠 <b>Gemini AI analizando la cartelera de NFL...</b>', { parse_mode: 'HTML' });
 
     const res = await this.usSportsService.analizarDeporte('nfl');
     if (res.error || !res.juegos || res.juegos.length === 0) {
@@ -1807,7 +1807,7 @@ export class ApuestasCronService {
       : await this.geminiService.analizarCartelera('NFL', carteleraTexto);
     const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>AUDITORÍA GEMINI AI | NFL</b>\n\n${dictamenLimpio}`, {
+    await ctx.reply(`🧠 <b>EL OJO DE GEMINI AI | NFL</b>\n\n${dictamenLimpio}`, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi')],
@@ -2136,7 +2136,7 @@ export class ApuestasCronService {
   @Action('opt_gemini_mlb')
   async accionGeminiMLB(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('🧠 <b>Apex Gemini AI auditando las recomendaciones y cartelera de MLB...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('🧠 <b>Gemini AI analizando toda la cartelera de MLB...</b>', { parse_mode: 'HTML' });
 
     const res = await this.usSportsService.analizarDeporte('mlb');
     if (res.error || !res.juegos || res.juegos.length === 0) {
@@ -2165,7 +2165,7 @@ export class ApuestasCronService {
       : await this.geminiService.analizarCartelera('MLB', carteleraTexto);
     const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>AUDITORÍA GEMINI AI | MLB</b>\n\n${dictamenLimpio}`, {
+    await ctx.reply(`🧠 <b>EL OJO DE GEMINI AI | MLB</b>\n\n${dictamenLimpio}`, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi')],
@@ -2439,7 +2439,7 @@ export class ApuestasCronService {
   @Action('opt_gemini_nba')
   async accionGeminiNBA(@Ctx() ctx: Context) {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('🧠 <b>Apex Gemini AI auditando las recomendaciones y cartelera de NBA...</b>', { parse_mode: 'HTML' });
+    await ctx.reply('🧠 <b>Gemini AI analizando la cartelera de NBA...</b>', { parse_mode: 'HTML' });
 
     const res = await this.usSportsService.analizarDeporte('nba');
     if (res.error || !res.juegos || res.juegos.length === 0) {
@@ -2466,7 +2466,7 @@ export class ApuestasCronService {
       : await this.geminiService.analizarCartelera('NBA', carteleraTexto);
     const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>AUDITORÍA GEMINI AI | NBA</b>\n\n${dictamenLimpio}`, {
+    await ctx.reply(`🧠 <b>EL OJO DE GEMINI AI | NBA</b>\n\n${dictamenLimpio}`, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi')],
@@ -2518,7 +2518,7 @@ export class ApuestasCronService {
     const dictamen = await this.geminiService.analizarCartelera('Fútbol Élite (Champions, Premier, LaLiga)', carteleraTexto);
     const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI | FÚTBOL ÉLITE</b>\n\n${dictamenLimpio}`, {
+    await ctx.reply(`🧠 <b>EL OJO DE GEMINI AI | FÚTBOL ÉLITE</b>\n\n${dictamenLimpio}`, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🇪🇺 Champions League', 'liga_champions'), Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League', 'liga_premier')],
@@ -2811,7 +2811,7 @@ export class ApuestasCronService {
     const dictamen = await this.geminiService.analizarCartelera(ligaInfo.nombre, carteleraTexto);
     const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI | ${ligaInfo.nombre.toUpperCase()}</b>\n\n${dictamenLimpio}`, {
+    await ctx.reply(`🧠 <b>EL OJO DE GEMINI AI | ${ligaInfo.nombre.toUpperCase()}</b>\n\n${dictamenLimpio}`, {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('📊 Estrategia y Descartes', `opt_estrategia_${ligaKey}`)],

@@ -52,11 +52,11 @@ REGLAS OBLIGATORIAS:
    - B. ARTES MARCIALES MIXTAS (UFC):
      • PROHIBIDO combinar 3 o más ganadores directos en boletos seguros; en MMA una sola decisión dividida de los jueces o un corte accidental arruina el boleto.
      • En combates cerrados de peleadores resistentes, la selección de mayor asertividad NO es forzar al ganador, sino jugar mercados de duración: "Más de 1.5 asaltos" o "La pelea va a la distancia".
-6. REGLA FUNDAMENTAL DE ALINEACIÓN TOTAL CON LA APLICACIÓN (CERO CONTRADICCIONES):
-   - Tú eres el Analista Senior y Auditor de Inteligencia Artificial de Apex Analytics.
-   - NUNCA contradigas las recomendaciones que el motor cuantitativo de la aplicación preparó (Boleto Seguro, Multiplicador, Boletos de Liga o Descartes de Trampa).
-   - Si el usuario te pregunta "¿A quién le hago caso?", "¿A la app o a ti?", "¿Qué opinas de lo que recomendó el bot?", o te pide auditar la cartelera / boletos:
-     DEJA TOTALMENTE CLARO QUE LA APLICACIÓN Y LA IA ESTÁN 100% ALINEADAS. Valida, respalda y explica con argumentos tácticos y de rendimiento exactamente por qué las selecciones de la aplicación son las mejores y recomiéndale al usuario seguir el Boleto Seguro de la app con total confianza.
+6. REGLA FUNDAMENTAL DE CRITERIO AFILADO, INDEPENDIENTE Y DIRECTO (CERO RELLENO CORPORATIVO):
+   - Eres un apostador profesional experto y callejero.
+   - Cuando se te pida ver la cartelera o dictamen, analiza con criterio propio: di con contundencia qué te gusta de toda la jornada, qué duelo es trampa y cuál es la combinada que tú armarías.
+   - CERO discursos burocráticos ni frases como "el motor cuantitativo hizo un trabajo quirúrgico", "auditoría táctica", "estamos 100% alineados".
+   - Si explicas el por qué de una jugada, hazlo en 1 SOLA LÍNEA deportiva y directa; si no hace falta, sé directo y al grano.
    - Para preguntas analíticas libres, dudas tácticas de partidos, opiniones de peleadores o jugadores, conservas absoluta libertad para explicar a fondo y sin restricciones.`;
 
   /**
@@ -130,24 +130,40 @@ REGLAS OBLIGATORIAS:
   }
 
   /**
-   * Genera el dictamen de recomendación para un deporte analizado
+   * Genera el dictamen directo y afilado de recomendación para un deporte
    */
   async analizarCartelera(deporte: string, datosCartelera: string): Promise<string> {
-    const prompt = `Analiza la cartelera de ${deporte.toUpperCase()} de Apex Analytics y entrega las selecciones directas sin ningún tecnicismo ni palabras como EV, sin usar símbolos ### ni asteriscos:
-1. 🟢 BOLETO SEGURO (x2): Las 2 selecciones de mayor certeza (probabilidad > 70%) para duplicar dinero.
-2. 🟡 BOLETO MULTIPLICADOR (x3 a x5): Las 3 mejores jugadas con cuotas más atractivas para multiplicar x3 o x4.
-3. 💣 COMBINADA BOMBA: Todas las selecciones con favorito claro combinadas, con cuota total, probabilidad real y advertencia de riesgo.
-4. 🚫 NO APOSTAR / TRAMPAS: Partidos o peleas 50/50 que hay que dejar fuera para salvar dinero.
-Habla en lenguaje de apostador directo, sin tecnicismos ni fórmulas.`;
+    const prompt = `Tienes delante la cartelera de ${deporte.toUpperCase()} con todas sus cuotas, probabilidades y opciones.
+
+Actúa como un apostador profesional experto y afilado. CERO rodeos, CERO relleno corporativo y CERO discursos largos. Sé DIRECTO, INDEPENDIENTE Y AL GRANO.
+
+Mira toda la cartelera y dinos con criterio propio: "De todo este análisis de la cartelera, esto es lo que a mí realmente me gusta para meter dinero hoy":
+
+Reglas estrictas de formato:
+- NADA de ### ni asteriscos.
+- PROHIBIDO decir frases de relleno corporativo o discursos largos.
+- Si explicas el por qué de una jugada, que sea en 1 SOLA LÍNEA directa y deportiva. Si no hace falta, no metas paja.
+
+Estructura requerida:
+
+🔥 LO QUE A MÍ ME GUSTA DE ESTA CARTELERA:
+(Elige las 2 o 3 mejores oportunidades reales de toda la cartelera: pueden ser Hándicaps/Runlines, Totales Over/Under o Ganadores si de verdad valen la pena)
+1. • [Equipo/Peleador/Mercado exacto] @ [Cuota] ([%]): [1 línea directa y al grano del por qué]
+2. • [Equipo/Peleador/Mercado exacto] @ [Cuota] ([%]): [1 línea directa y al grano del por qué]
+3. • [Equipo/Peleador/Mercado exacto] @ [Cuota] ([%]): [1 línea directa y al grano del por qué]
+
+🚫 LA TRAMPA (A LO QUE NO LE METO NI LOCO):
+• [Duelo o favorito trampa]: [1 línea directa de por qué dejarlo fuera]
+
+💰 LA COMBINADA QUE YO METERÍA:
+• [Selección 1] + [Selección 2]
+• Cuota total estimada: [X.XX]
+• Veredicto: [1 frase corta y contundente sin rodeos]`;
     return this.consultarGemini(prompt, datosCartelera);
   }
 
   /**
-   * Responde a una consulta en lenguaje natural del usuario (ej: "¿Por qué McGhee?", "¿Qué opinas del Arsenal?")
-   */
-
-  /**
-   * Audita, valida y explica tácticamente las recomendaciones oficiales generadas por el motor de la aplicación
+   * Mira la cartelera completa y las opciones disponibles para dar su veredicto independiente y al grano
    */
   async auditarRecomendacionesApp(
     deporte: string,
@@ -159,51 +175,44 @@ Habla en lenguaje de apostador directo, sin tecnicismos ni fórmulas.`;
     },
     contextoPartidos?: string,
   ): Promise<string> {
-    let resumenBoletos = `RECOMENDACIONES OFICIALES GENERADAS POR EL MOTOR CUANTITATIVO DE APEX:\n`;
+    let resumenBoletos = `OPCIONES Y LÍNEAS DE APEX:\n`;
 
-    resumenBoletos += `\n🟢 BOLETO SEGURO (x2) DE LA APP (Cuota: ${boletosApp.seguro.cuotaTotal} | Certeza: ~${boletosApp.seguro.probEstimada}%):\n`;
-    boletosApp.seguro.selecciones.forEach((s, idx) => {
-      resumenBoletos += `  • Leg ${idx + 1}: ${s.titulo} (vs ${s.rival}) | Mercado: ${s.mercado || 'Ganador Directo'} @ ${s.cuota} (${s.prob}%)\n`;
-      if (s.alerta) resumenBoletos += `    Nota: ${s.alerta}\n`;
-    });
+    resumenBoletos += `Boleto Base Sugerido [@${boletosApp.seguro.cuotaTotal}]: ` +
+      boletosApp.seguro.selecciones.map(s => `${s.titulo} [${s.mercado || 'Ganador'}] @ ${s.cuota} (${s.prob}%)`).join(' + ') + '\n';
 
-    resumenBoletos += `\n🟡 BOLETO MULTIPLICADOR (x3 a x5) DE LA APP (Cuota: ${boletosApp.multi.cuotaTotal} | Certeza: ~${boletosApp.multi.probEstimada}%):\n`;
-    boletosApp.multi.selecciones.forEach((s, idx) => {
-      resumenBoletos += `  • Leg ${idx + 1}: ${s.titulo} (vs ${s.rival}) | Mercado: ${s.mercado || 'Ganador Directo'} @ ${s.cuota} (${s.prob}%)\n`;
-      if (s.alerta) resumenBoletos += `    Nota: ${s.alerta}\n`;
-    });
-
-    resumenBoletos += `\n🚫 DUELOS TRAMPA / DESCARTADOS POR LA APP:\n`;
-    if (!boletosApp.trampas || boletosApp.trampas.length === 0) {
-      resumenBoletos += `  • Ninguna trampa extrema detectada.\n`;
-    } else {
-      boletosApp.trampas.forEach((t) => {
-        resumenBoletos += `  • ${t.duelo}: ${t.razon}\n`;
-      });
+    if (boletosApp.trampas && boletosApp.trampas.length > 0) {
+      resumenBoletos += `Duelos volátiles detectados: ` +
+        boletosApp.trampas.map(t => `${t.duelo} (${t.razon})`).join('; ') + '\n';
     }
 
-    const prompt = `AUDITORÍA Y VALIDACIÓN DE LAS RECOMENDACIONES DE LA APLICACIÓN (${deporte.toUpperCase()}):
-El usuario presionó el botón de analizar con IA para auditar y validar lo que la aplicación de Apex acaba de recomendar.
-IMPORTANTE: NO inventes otros boletos ni recomiendes selecciones que contradigan lo que el motor de la app preparó.
-Tu función como Analista Senior de Apex es auditar, validar y explicar tácticamente por qué estas selecciones exactas de la aplicación son las mejores jugadas.
+    const prompt = `Tienes delante la cartelera completa de ${deporte.toUpperCase()} con todas sus cuotas, probabilidades, líneas y opciones.
 
-Estructura tu respuesta limpia para Telegram (sin ### ni asteriscos):
+Actúa como un apostador profesional experto y afilado. CERO rodeos, CERO relleno corporativo y CERO discursos largos. Sé DIRECTO, INDEPENDIENTE Y AL GRANO.
 
-1. 🟢 AUDITORÍA DEL BOLETO SEGURO (x2) DE APEX:
-   - Analiza las selecciones exactas que el motor puso en el Boleto Seguro.
-   - Explica con argumentos tácticos y de rendimiento por qué tienen sentido y por qué cubren la banca (por ejemplo, por qué el Runline +1.5 o la victoria directa es la vía más segura).
-   - Confirma la cuota combinada (${boletosApp.seguro.cuotaTotal}) y dale el visto bueno al apostador.
+Mira toda la cartelera y dinos con criterio propio: "De todo este análisis de la cartelera, esto es lo que a mí realmente me gusta para meter dinero hoy":
 
-2. 🟡 AUDITORÍA DEL BOLETO MULTIPLICADOR (x3 a x5) DE APEX:
-   - Valida las jugadas del multiplicador de la app y cómo equilibran retorno y probabilidad.
+Reglas estrictas de formato:
+- NADA de ### ni asteriscos.
+- PROHIBIDO decir frases de relleno como "el motor cuantitativo hizo un trabajo quirúrgico", "auditoría táctica", "estamos 100% alineados" o repetir textos largos.
+- Si explicas el por qué de una jugada, que sea en 1 SOLA LÍNEA directa y deportiva. Si no hace falta, no metas paja.
 
-3. 🚫 VALIDACIÓN DE TRAMPAS IDENTIFICADAS:
-   - Explica con criterio táctico por qué el motor acertó al descartar o alertar sobre esos duelos 50/50 o alertas de serie.
+Estructura requerida:
 
-4. 🎯 VEREDICTO DE APEX AI:
-   - Confirma que la Inteligencia Artificial y la aplicación están 100% alineadas: "Hazle caso al Boleto Seguro de la aplicación sin dudar".`;
+🔥 LO QUE A MÍ ME GUSTA DE ESTA CARTELERA:
+(Elige las 2 o 3 mejores oportunidades reales de toda la cartelera: pueden ser Runlines/Hándicaps, Totales Over/Under o Ganadores si de verdad valen la pena)
+1. • [Equipo/Peleador/Mercado exacto] @ [Cuota] ([%]): [1 línea directa y al grano del por qué]
+2. • [Equipo/Peleador/Mercado exacto] @ [Cuota] ([%]): [1 línea directa y al grano del por qué]
+3. • [Equipo/Peleador/Mercado exacto] @ [Cuota] ([%]): [1 línea directa y al grano del por qué]
 
-    const contextoTotal = `${resumenBoletos}\n\n${contextoPartidos ? `DATOS DE LA CARTELERA:\n${contextoPartidos}` : ''}`;
+🚫 LA TRAMPA (A LO QUE NO LE METO NI LOCO):
+• [Duelo o favorito trampa]: [1 línea directa de por qué dejarlo fuera]
+
+💰 LA COMBINADA QUE YO METERÍA:
+• [Selección 1] + [Selección 2]
+• Cuota total estimada: [X.XX]
+• Veredicto: [1 frase corta y contundente sin rodeos]`;
+
+    const contextoTotal = `${prompt}\n\n${contextoPartidos ? `CARTELERA COMPLETA:\n${contextoPartidos}\n\n` : ''}${resumenBoletos}`;
     return this.consultarGemini(prompt, contextoTotal);
   }
 
