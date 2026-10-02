@@ -342,10 +342,12 @@ export class UsSportsService {
         }
       }
 
-      this.cache[deporte] = {
-        timestamp: ahora,
-        data: resultado,
-      };
+      if (!resultado.error && resultado.juegos && resultado.juegos.length > 0) {
+        this.cache[deporte] = {
+          timestamp: ahora,
+          data: resultado,
+        };
+      }
 
       return resultado;
     } catch (error) {

@@ -1327,7 +1327,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando Boleto Seguro UFC...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackUFC();
-    if (!pack) return ctx.reply('⚠️ No hay datos de combates disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de combates disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('UFC', 'seguro', pack.seguro);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -1344,7 +1347,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando Boleto Multiplicador UFC...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackUFC();
-    if (!pack) return ctx.reply('⚠️ No hay datos de combates disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de combates disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('UFC', 'multi', pack.multi);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -1361,7 +1367,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Armando Boleto Bomba (Toda la Cartelera UFC)...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackUFC();
-    if (!pack) return ctx.reply('⚠️ No hay datos de combates disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de combates disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('UFC', 'bomba', pack.bomba);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -1378,7 +1387,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando matriz de boletos UFC...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackUFC();
-    if (!pack) return ctx.reply('⚠️ No hay datos de combates disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de combates disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearTresBoletosJuntos('UFC', pack);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -1776,7 +1788,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando Boleto Seguro NFL...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackNFL();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NFL disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos NFL disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('NFL', 'seguro', pack.seguro);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -1793,7 +1808,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando Boleto Multiplicador NFL...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackNFL();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NFL disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos NFL disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('NFL', 'multi', pack.multi);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -1810,7 +1828,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Armando Boleto Bomba (Toda la Jornada NFL)...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackNFL();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NFL disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos NFL disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('NFL', 'bomba', pack.bomba);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -1827,7 +1848,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando matriz de boletos NFL...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackNFL();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NFL disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos NFL disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearTresBoletosJuntos('NFL', pack);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -2132,7 +2156,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando Boleto Seguro MLB...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackMLB();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos MLB disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos MLB disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('MLB', 'seguro', pack.seguro);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -2149,7 +2176,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando Boleto Multiplicador MLB...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackMLB();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos MLB disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos MLB disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('MLB', 'multi', pack.multi);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -2166,7 +2196,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Armando Boleto Bomba (Toda la Cartelera MLB)...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackMLB();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos MLB disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos MLB disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('MLB', 'bomba', pack.bomba);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -2183,7 +2216,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando matriz de boletos MLB...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackMLB();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos MLB disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos MLB disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearTresBoletosJuntos('MLB', pack);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -2435,7 +2471,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando Boleto Seguro NBA...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackNBA();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NBA disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos NBA disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('NBA', 'seguro', pack.seguro);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -2452,7 +2491,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando Boleto Multiplicador NBA...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackNBA();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NBA disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos NBA disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('NBA', 'multi', pack.multi);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -2469,7 +2511,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Armando Boleto Bomba (Todos los Partidos NBA)...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackNBA();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NBA disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos NBA disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('NBA', 'bomba', pack.bomba);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -2486,7 +2531,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando matriz de boletos NBA...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackNBA();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NBA disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos NBA disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearTresBoletosJuntos('NBA', pack);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -2860,7 +2908,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando Boleto Seguro NHL...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackNHL();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NHL disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos NHL disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('NHL', 'seguro', pack.seguro);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -2877,7 +2928,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando Boleto Multiplicador NHL...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackNHL();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NHL disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos NHL disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('NHL', 'multi', pack.multi);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -2894,7 +2948,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Armando Boleto Bomba (Todos los Partidos NHL)...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackNHL();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NHL disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos NHL disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearBoletoIndividual('NHL', 'bomba', pack.bomba);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
@@ -2911,7 +2968,10 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('⏳ <b>Generando matriz de boletos NHL...</b>', { parse_mode: 'HTML' });
     const pack = await this.obtenerPackNHL();
-    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NHL disponibles en este momento.');
+    if (!pack) {
+      await ctx.reply('⚠️ No hay datos de partidos NHL disponibles en este momento.');
+      return;
+    }
     const msg = this.formatearTresBoletosJuntos('NHL', pack);
     await ctx.reply(msg, {
       parse_mode: 'HTML',
