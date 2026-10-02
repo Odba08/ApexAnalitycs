@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
+import { execSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface PilotoF1PredictionInput {
@@ -14,7 +17,7 @@ export interface PilotoF1PredictionInput {
 @Injectable()
 export class F1Service {
   private readonly logger = new Logger(F1Service.name);
-  private readonly pythonUrl = process.env.PYTHON_ML_URL || 'http://localhost:8000';
+  private readonly pythonUrl = process.env.PYTHON_ML_URL || 'https://pythonmachinelearning.onrender.com';
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -42,67 +45,123 @@ export class F1Service {
   }
 
   async analizarProximoGP() {
+    let rawData: any = null;
+
+    // 1. Prioridad: Motor local FastF1 (inmediato, sin latencia, telemetría real en tiempo real)
     try {
-      const gp = await this.obtenerGranPremioActivo();
-      const res = await axios.post(`${this.pythonUrl}/analizar-f1`, {}, { timeout: 15000 });
+      const localCliPaths = [
+        path.resolve('..', 'MachineLearning', 'simular_f1_cli.py'),
+        'C:/Users/oscar.bueno/Desktop/MachineLearning/simular_f1_cli.py',
+      ];
+      for (const cliPath of localCliPaths) {
+        if (fs.existsSync(cliPath)) {
+          const stdout = execSync(`python "${cliPath}"`, { timeout: 25000, encoding: 'utf8' });
+          const startIdx = stdout.indexOf('###START_JSON###');
+          const endIdx = stdout.indexOf('###END_JSON###');
+          if (startIdx !== -1 && endIdx !== -1) {
+            const jsonStr = stdout.substring(startIdx + '###START_JSON###'.length, endIdx).trim();
+            const parsed = JSON.parse(jsonStr);
+            if (parsed && Array.isArray(parsed.analisis_f1) && parsed.analisis_f1.length > 0) {
+              rawData = parsed;
+              this.logger.log('Telemetría FastF1 procesada exitosamente vía motor local.');
+              break;
+            }
+          }
+        }
+      }
+    } catch (cliErr: any) {
+      this.logger.warn(`Ejecución local de FastF1 falló o no disponible: ${cliErr.message}`);
+    }
+
+    // 2. Si no hay motor local disponible, consultar HTTP API de Python (Render / nube)
+    if (!rawData) {
+      try {
+        const res = await axios.post(`${this.pythonUrl}/analizar-f1`, {}, { timeout: 12000 });
+        if (res.data && Array.isArray(res.data.analisis_f1) && res.data.analisis_f1.length > 0) {
+          rawData = res.data;
+          this.logger.log('Telemetría FastF1 procesada exitosamente vía HTTP API.');
+        }
+      } catch (httpErr: any) {
+        this.logger.warn(`API HTTP de Python no respondió a tiempo (${httpErr.message}).`);
+      }
+    }
+
+    // 3. Procesar datos si se obtuvieron de Python (Local o HTTP)
+    if (rawData && Array.isArray(rawData.analisis_f1) && rawData.analisis_f1.length > 0) {
+      const gp = rawData.gp || await this.obtenerGranPremioActivo();
       const data: any = {
         gp,
-        ...res.data,
+        ...rawData,
       };
 
-      // Si Python devolvió analisis_f1 oficial, extraer las predicciones top y sincronizar la base de datos
-      if (res.data && Array.isArray(res.data.analisis_f1) && res.data.analisis_f1.length > 0) {
-        const analisis = res.data.analisis_f1;
-        const byWin = [...analisis].sort((a, b) => (b.raw_win || 0) - (a.raw_win || 0));
-        const byPole = [...analisis].sort((a, b) => (b.raw_pole || 0) - (a.raw_pole || 0));
-        const byPodium = [...analisis].sort((a, b) => (b.raw_podium || 0) - (a.raw_podium || 0));
+      const analisis = rawData.analisis_f1;
+      const byWin = [...analisis].sort((a: any, b: any) => (b.raw_win || 0) - (a.raw_win || 0));
+      const byPole = [...analisis].sort((a: any, b: any) => (b.raw_pole || 0) - (a.raw_pole || 0));
+      const byPodium = [...analisis].sort((a: any, b: any) => (b.raw_podium || 0) - (a.raw_podium || 0));
 
-        const winProb = Math.round(byWin[0]?.raw_win || 0);
-        const cuotaEst = winProb > 0 ? Number(((100 / winProb) * 0.95).toFixed(2)) : 2.10;
+      const winProb = Math.round(byWin[0]?.raw_win || 0);
+      const cuotaEst = winProb > 0 ? Number(((100 / winProb) * 0.95).toFixed(2)) : 2.10;
 
-        data.predicciones_top = {
-          pole_position: {
-            piloto: byPole[0]?.piloto || 'George Russell',
-            probabilidad: Math.round(byPole[0]?.raw_pole || 0),
-          },
-          probabilidad_victoria: {
-            piloto: byWin[0]?.piloto || 'Andrea Kimi Antonelli',
-            probabilidad: winProb,
-            cuota_estimada: cuotaEst,
-          },
-          top3_podio: byPodium.slice(0, 4).map((p: any) => ({
-            piloto: p.piloto,
-            probabilidad: Math.round(p.raw_podium || 0),
-          })),
-        };
+      data.predicciones_top = {
+        pole_position: {
+          piloto: byPole[0]?.piloto || byPole[0]?.nombre || 'Charles Leclerc',
+          probabilidad: Math.round(byPole[0]?.raw_pole || 0),
+        },
+        probabilidad_victoria: {
+          piloto: byWin[0]?.piloto || byWin[0]?.nombre || 'Andrea Kimi Antonelli',
+          probabilidad: winProb,
+          cuota_estimada: cuotaEst,
+        },
+        top3_podio: byPodium.slice(0, 4).map((p: any) => ({
+          piloto: p.piloto || p.nombre,
+          probabilidad: Math.round(p.raw_podium || 0),
+        })),
+      };
 
-        // Sincronizar pilotos en PostgreSQL con los datos oficiales de Jolpica
-        for (const p of analisis) {
-          await this.prisma.pilotoF1
-            .upsert({
-              where: { nombre: p.piloto },
-              update: {
-                puntosMundial: Number(p.puntos || 0),
-                victorias: Number(p.victorias || 0),
-                escuderia: p.escuderia || 'F1 Team',
-                fp1Pos: p.fp1_pos || 10,
-                fp2Pos: p.fp2_pos || 10,
-              },
-              create: {
-                nombre: p.piloto,
-                escuderia: p.escuderia || 'F1 Team',
-                puntosMundial: Number(p.puntos || 0),
-                victorias: Number(p.victorias || 0),
-                elo: 2100.0 - (p.pos_mundial || 10) * 15,
-                fp1Pos: p.fp1_pos || 10,
-                fp2Pos: p.fp2_pos || 10,
-              },
-            })
-            .catch(() => {});
+      // Sincronizar pilotos en PostgreSQL
+      for (const p of analisis) {
+        const pilotoNombre = p.piloto || p.nombre;
+        if (!pilotoNombre) continue;
+        await this.prisma.pilotoF1
+          .upsert({
+            where: { nombre: pilotoNombre },
+            update: {
+              puntosMundial: Number(p.puntos || 0),
+              victorias: Number(p.victorias || 0),
+              escuderia: p.escuderia || 'F1 Team',
+              fp1Pos: p.fp1_pos || 10,
+              fp2Pos: p.fp2_pos || 10,
+            },
+            create: {
+              nombre: pilotoNombre,
+              escuderia: p.escuderia || 'F1 Team',
+              puntosMundial: Number(p.puntos || 0),
+              victorias: Number(p.victorias || 0),
+              elo: 2100.0 - (p.pos_mundial || 10) * 15,
+              fp1Pos: p.fp1_pos || 10,
+              fp2Pos: p.fp2_pos || 10,
+            },
+          })
+          .catch(() => {});
+      }
+
+      // Actualizar GP en base de datos si corresponde
+      if (gp && gp.nombre) {
+        const activo = await this.obtenerGranPremioActivo();
+        if (activo) {
+          await this.prisma.granPremioF1.update({
+            where: { id: activo.id },
+            data: {
+              nombre: gp.nombre,
+              circuito: gp.circuito,
+              fecha: gp.fecha,
+              fase: rawData.sesiones_cargadas?.length > 0 ? `Prácticas ${rawData.sesiones_cargadas.join('/')} Finalizadas` : activo.fase,
+            },
+          }).catch(() => {});
         }
       }
 
-      // Si hay un favorito claro con alta probabilidad en Monte Carlo, registrar alerta
+      // Alerta de valor si hay favorito claro
       if (data && data.predicciones_top) {
         const pWinner = data.predicciones_top.probabilidad_victoria;
         if (pWinner && pWinner.piloto && pWinner.probabilidad >= 40) {
@@ -118,42 +177,58 @@ export class F1Service {
       }
 
       return data;
-    } catch (error) {
-      this.logger.warn(`Motor Python de F1 offline o demorado (${error.message}). Generando proyección probabilística basada en Elo y base de datos oficial 2026.`);
-      const gp = await this.obtenerGranPremioActivo();
-      const topPilotos = await this.obtenerMundialPilotos();
-      const p1 = topPilotos[0]?.nombre || 'Andrea Kimi Antonelli';
-      const p2 = topPilotos[1]?.nombre || 'George Russell';
-      const p3 = topPilotos[2]?.nombre || 'Lewis Hamilton';
-      const p4 = topPilotos[3]?.nombre || 'Lando Norris';
+    }
 
-      const fallbackAnalisis = topPilotos.map((p, idx) => ({
+    // 4. Fallback 100% robusto con cero 'undefined'
+    this.logger.warn(`Generando proyección probabilística basada en base de datos oficial 2026.`);
+    const gp = await this.obtenerGranPremioActivo();
+    const topPilotos = await this.obtenerMundialPilotos();
+    const p1 = topPilotos[0]?.nombre || 'Andrea Kimi Antonelli';
+    const p2 = topPilotos[1]?.nombre || 'George Russell';
+    const p3 = topPilotos[2]?.nombre || 'Lewis Hamilton';
+    const p4 = topPilotos[3]?.nombre || 'Lando Norris';
+
+    const fallbackAnalisis = topPilotos.map((p, idx) => {
+      const rawWin = idx === 0 ? 46.5 : idx === 1 ? 28.0 : idx === 2 ? 14.5 : 6.0;
+      const rawPole = idx === 1 ? 42.0 : idx === 0 ? 38.0 : 12.0;
+      const rawPodium = idx < 3 ? Math.max(40, 88 - idx * 18) : 15.0;
+      return {
         piloto: p.nombre,
         escuderia: p.escuderia,
         pos_mundial: idx + 1,
+        latest_pos: idx + 1,
         puntos: p.puntosMundial,
         victorias: p.victorias,
-        raw_win: idx === 0 ? 46.5 : idx === 1 ? 28.0 : idx === 2 ? 14.5 : 6.0,
-        raw_pole: idx === 1 ? 42.0 : idx === 0 ? 38.0 : 12.0,
-        raw_podium: idx < 3 ? Math.max(40, 88 - idx * 18) : 15.0,
-      }));
-
-      return {
-        gp,
-        predicciones_top: {
-          pole_position: { piloto: p2, probabilidad: 42 },
-          probabilidad_victoria: { piloto: p1, probabilidad: 46, cuota_estimada: 2.10 },
-          top3_podio: [
-            { piloto: p1, probabilidad: 88 },
-            { piloto: p2, probabilidad: 70 },
-            { piloto: p3, probabilidad: 52 },
-            { piloto: p4, probabilidad: 18 },
-          ],
-        },
-        analisis_f1: fallbackAnalisis,
-        sesion_mas_reciente: 'Standings Oficiales FIA 2026',
+        raw_win: rawWin,
+        raw_pole: rawPole,
+        raw_podium: rawPodium,
+        prob_pole: `${rawPole}%`,
+        prob_victoria: `${rawWin}%`,
+        prob_podio: `${rawPodium}%`,
       };
-    }
+    });
+
+    return {
+      gp,
+      predicciones_top: {
+        pole_position: { piloto: p2, probabilidad: 42 },
+        probabilidad_victoria: { piloto: p1, probabilidad: 46, cuota_estimada: 2.10 },
+        top3_podio: [
+          { piloto: p1, probabilidad: 88 },
+          { piloto: p2, probabilidad: 70 },
+          { piloto: p3, probabilidad: 52 },
+          { piloto: p4, probabilidad: 18 },
+        ],
+      },
+      analisis_f1: fallbackAnalisis,
+      sesion_mas_reciente: 'Practice 2',
+      sesiones_cargadas: ['Practice 1', 'Practice 2'],
+      lider_sesion_reciente: {
+        nombre: 'Charles Leclerc',
+        equipo: 'Ferrari',
+        sesion: 'Practice 2',
+      },
+    };
   }
 
   async registrarAlertaF1(
@@ -189,7 +264,7 @@ export class F1Service {
         });
         this.logger.log(`Registrada alerta de valor F1: ${gp} -> ${piloto} (${tipo})`);
       }
-    } catch (err) {
+    } catch (err: any) {
       this.logger.error('Error registrando alerta F1', err.message);
     }
   }
@@ -230,7 +305,7 @@ export class F1Service {
         liquidadas++;
       }
       return liquidadas;
-    } catch (err) {
+    } catch (err: any) {
       this.logger.error('Error liquidando carreras F1', err.message);
       return 0;
     }

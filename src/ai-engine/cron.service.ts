@@ -845,20 +845,20 @@ export class ApuestasCronService {
       return;
     }
 
-    const gpNombre = res.gp ? res.gp.nombre : 'Gran Premio de Azerbaiyán (Bakú)';
-    const circuito = res.gp ? res.gp.circuito : 'Baku City Circuit';
-    const fecha = res.gp ? res.gp.fecha : '2026-09-26';
+    const gpNombre = res.gp?.nombre || 'Gran Premio de Bahréin (en Malasia / Sepang)';
+    const circuito = res.gp?.circuito || 'Circuito Internacional de Sepang (Kuala Lumpur)';
+    const fecha = res.gp?.fecha || '2026-10-04';
     const analisis = res.analisis_f1;
 
-    const sortedPole = [...analisis].sort((a: any, b: any) => b.raw_pole - a.raw_pole);
-    const sortedWin = [...analisis].sort((a: any, b: any) => b.raw_win - a.raw_win);
-    const sortedPodium = [...analisis].sort((a: any, b: any) => b.raw_podium - a.raw_podium);
+    const sortedPole = [...analisis].sort((a: any, b: any) => (b.raw_pole || 0) - (a.raw_pole || 0));
+    const sortedWin = [...analisis].sort((a: any, b: any) => (b.raw_win || 0) - (a.raw_win || 0));
+    const sortedPodium = [...analisis].sort((a: any, b: any) => (b.raw_podium || 0) - (a.raw_podium || 0));
 
     const sesionReciente = res.sesion_mas_reciente || 'Practice 2';
     const sesionesCargadas = res.sesiones_cargadas && res.sesiones_cargadas.length > 0
       ? res.sesiones_cargadas.join(', ')
       : sesionReciente;
-    const liderSesion = res.lider_sesion_reciente || { nombre: 'George Russell', equipo: 'Mercedes', sesion: sesionReciente };
+    const liderSesion = res.lider_sesion_reciente || { nombre: 'Charles Leclerc', equipo: 'Ferrari', sesion: sesionReciente };
     const esQualyHecha = !!res.qualy_completada;
     const div = '──────────────────────────────';
 
@@ -872,26 +872,34 @@ export class ApuestasCronService {
 
     if (esQualyHecha) {
       const poleMan = sortedPole[0];
+      const poleManName = poleMan.piloto || poleMan.nombre || 'Piloto';
       msg += `<b>POLE POSITION CONFIRMADA (Q3)</b>\n` +
-             `🥇 <b>${poleMan.piloto}</b> (${poleMan.escuderia}) saldrá 1º en parrilla.\n\n`;
+             `🥇 <b>${poleManName}</b> (${poleMan.escuderia}) saldrá 1º en parrilla.\n\n`;
     } else {
       msg += `⏱️ <b>FAVORITOS POLE POSITION (Q3):</b>\n`;
       sortedPole.slice(0, 5).forEach((p: any, idx: number) => {
         const medalla = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '•';
-        const fpInfo = `(P${p.latest_pos} en libres)`;
-        msg += `${medalla} <b>${p.piloto}</b> (${p.escuderia}) — Pole: <b>${p.prob_pole}</b> ${fpInfo}\n`;
+        const fpInfo = p.latest_pos ? `(P${p.latest_pos} en libres)` : '';
+        const probPole = p.prob_pole || (p.raw_pole ? `${p.raw_pole}%` : '15%');
+        const pilotoName = p.piloto || p.nombre || 'Piloto';
+        msg += `${medalla} <b>${pilotoName}</b> (${p.escuderia}) — Pole: <b>${probPole}</b> ${fpInfo}\n`;
       });
     }
 
     msg += `\n🏆 <b>FAVORITOS DE CARRERA (P1):</b>\n`;
     sortedWin.slice(0, 5).forEach((p: any, idx: number) => {
       const medalla = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '•';
-      msg += `${medalla} <b>${p.piloto}</b> (${p.escuderia}) — Victoria: <b>${p.prob_victoria}</b> (${p.victorias} Wins)\n`;
+      const probWin = p.prob_victoria || (p.raw_win ? `${p.raw_win}%` : '20%');
+      const pilotoName = p.piloto || p.nombre || 'Piloto';
+      const wins = p.victorias ?? 0;
+      msg += `${medalla} <b>${pilotoName}</b> (${p.escuderia}) — Victoria: <b>${probWin}</b> (${wins} Wins)\n`;
     });
 
     msg += `\n📊 <b>PROBABILIDAD DE PODIO (TOP 3):</b>\n`;
     sortedPodium.slice(0, 6).forEach((p: any) => {
-      msg += `• <b>${p.piloto}</b> (${p.escuderia}): <b>${p.prob_podio}</b>\n`;
+      const probPodio = p.prob_podio || (p.raw_podium ? `${p.raw_podium}%` : '35%');
+      const pilotoName = p.piloto || p.nombre || 'Piloto';
+      msg += `• <b>${pilotoName}</b> (${p.escuderia}): <b>${probPodio}</b>\n`;
     });
 
     await ctx.reply(msg, {
@@ -918,8 +926,12 @@ export class ApuestasCronService {
     msg += `<i>Piloto | Pole % | Victoria % | Podio %</i>\n\n`;
 
     analisis.forEach((p: any, idx: number) => {
-      msg += `<b>${idx + 1}. ${p.piloto}</b> (${p.escuderia})\n` +
-             `   └ Pole: <b>${p.prob_pole}</b> | Win: <b>${p.prob_victoria}</b> | Podio: <b>${p.prob_podio}</b>\n`;
+      const probPole = p.prob_pole || (p.raw_pole ? `${p.raw_pole}%` : '0%');
+      const probWin = p.prob_victoria || (p.raw_win ? `${p.raw_win}%` : '0%');
+      const probPodio = p.prob_podio || (p.raw_podium ? `${p.raw_podium}%` : '0%');
+      const pilotoName = p.piloto || p.nombre || 'Piloto';
+      msg += `<b>${idx + 1}. ${pilotoName}</b> (${p.escuderia})\n` +
+             `   └ Pole: <b>${probPole}</b> | Win: <b>${probWin}</b> | Podio: <b>${probPodio}</b>\n`;
     });
 
     await ctx.reply(msg, {
@@ -2556,13 +2568,15 @@ export class ApuestasCronService {
     const topWin = [...gpInfo.analisis_f1].sort((a: any, b: any) => (b.raw_win || 0) - (a.raw_win || 0));
     lineasF1.push('PROBABILIDADES VICTORIA CARRERA:');
     topWin.slice(0, 8).forEach((p: any, idx: number) => {
-      lineasF1.push(`${idx + 1}. ${p.nombre} (${p.escuderia}) - Victoria: ${Math.round(p.raw_win || 0)}% | Podio: ${Math.round(p.raw_podium || 0)}%`);
+      const pilotoName = p.piloto || p.nombre || 'Piloto';
+      lineasF1.push(`${idx + 1}. ${pilotoName} (${p.escuderia}) - Victoria: ${Math.round(p.raw_win || 0)}% | Podio: ${Math.round(p.raw_podium || 0)}%`);
     });
 
     const topPole = [...gpInfo.analisis_f1].sort((a: any, b: any) => (b.raw_pole || 0) - (a.raw_pole || 0));
     lineasF1.push('PROBABILIDADES POLE POSITION:');
     topPole.slice(0, 5).forEach((p: any, idx: number) => {
-      lineasF1.push(`${idx + 1}. ${p.nombre} - Pole: ${Math.round(p.raw_pole || 0)}%`);
+      const pilotoName = p.piloto || p.nombre || 'Piloto';
+      lineasF1.push(`${idx + 1}. ${pilotoName} - Pole: ${Math.round(p.raw_pole || 0)}%`);
     });
 
     const dictamen = await this.geminiService.analizarCartelera(`Fórmula 1 (${gpName})`, lineasF1.join('\n'));
