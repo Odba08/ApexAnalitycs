@@ -10,6 +10,13 @@ export interface PropsDeporteUS {
   runline_away?: string;
   runline_home_prob?: number;
   runline_away_prob?: number;
+  puckline_home?: string;
+  puckline_away?: string;
+  puckline_home_prob?: number;
+  puckline_away_prob?: number;
+  ot_prob?: number;
+  p1_pick?: string;
+  p1_prob?: number;
   total_line?: number;
   over_prob?: number;
   under_prob?: number;
@@ -91,7 +98,7 @@ export class UsSportsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  private resolverSportKey(deporte: 'nfl' | 'mlb' | 'nba'): string {
+  private resolverSportKey(deporte: 'nfl' | 'mlb' | 'nba' | 'nhl'): string {
     switch (deporte) {
       case 'nfl':
         return 'americanfootball_nfl';
@@ -99,12 +106,14 @@ export class UsSportsService {
         return 'baseball_mlb';
       case 'nba':
         return 'basketball_nba';
+      case 'nhl':
+        return 'icehockey_nhl';
       default:
         return 'americanfootball_nfl';
     }
   }
 
-  private resolverEspnUrl(deporte: 'nfl' | 'mlb' | 'nba'): string {
+  private resolverEspnUrl(deporte: 'nfl' | 'mlb' | 'nba' | 'nhl'): string {
     switch (deporte) {
       case 'nfl':
         return 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
@@ -112,6 +121,8 @@ export class UsSportsService {
         return 'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard';
       case 'nba':
         return 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard';
+      case 'nhl':
+        return 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard';
     }
   }
 
@@ -178,7 +189,7 @@ export class UsSportsService {
     }
   }
 
-  async analizarDeporte(deporte: 'nfl' | 'mlb' | 'nba'): Promise<AnalisisUSResponse> {
+  async analizarDeporte(deporte: 'nfl' | 'mlb' | 'nba' | 'nhl'): Promise<AnalisisUSResponse> {
     const ahora = Date.now();
     const cached = this.cache[deporte];
     if (cached && ahora - cached.timestamp < this.CACHE_DURATION_MS) {
@@ -280,7 +291,7 @@ export class UsSportsService {
             j.prob_mercado_home = Math.round((impH / sumImp) * 1000) / 10;
             j.prob_mercado_away = Math.round((impA / sumImp) * 1000) / 10;
 
-            if (deporte === 'mlb') {
+            if (deporte === 'mlb' || deporte === 'nhl') {
               // Ponderar 70% mercado real (abridores hoy, dinero real) + 30% modelo estático
               const pCalibH = Math.round((j.prob_mercado_home * 0.7 + j.prob_home * 0.3) * 10) / 10;
               const pCalibA = Math.round((100 - pCalibH) * 10) / 10;
@@ -349,7 +360,7 @@ export class UsSportsService {
     }
   }
 
-  async obtenerMarcadoresESPN(deporte: 'nfl' | 'mlb' | 'nba'): Promise<MarcadorESPN[]> {
+  async obtenerMarcadoresESPN(deporte: 'nfl' | 'mlb' | 'nba' | 'nhl'): Promise<MarcadorESPN[]> {
     try {
       const url = this.resolverEspnUrl(deporte);
       const res = await axios.get(url, {

@@ -252,6 +252,7 @@ export class ApuestasCronService {
             Markup.button.callback('🏈 NFL', 'menu_nfl'),
             Markup.button.callback('⚾ MLB', 'menu_mlb'),
             Markup.button.callback('🏀 NBA', 'menu_nba'),
+            Markup.button.callback('🏒 NHL', 'menu_nhl'),
           ],
           [
             Markup.button.callback('🧠 Asistente Gemini AI', 'menu_gemini_info'),
@@ -290,6 +291,9 @@ export class ApuestasCronService {
           [
             Markup.button.callback('🏈 Boletos NFL (Americano)', 'opt_nfl_estrategia'),
             Markup.button.callback('🏀 Boletos NBA (Básquet)', 'opt_nba_estrategia'),
+          ],
+          [
+            Markup.button.callback('🏒 Boletos NHL (Hockey Hielo)', 'opt_nhl_estrategia'),
           ],
           [Markup.button.callback('🔙 Volver al Menú Principal', 'menu_start_redirect')],
         ]),
@@ -401,6 +405,16 @@ export class ApuestasCronService {
     ];
     const esNBA = nbaKeywords.some((k) => pLower.includes(k));
 
+    // Palabras clave y equipos para NHL (Hockey Sobre Hielo)
+    const nhlKeywords = [
+      'nhl', 'hockey', 'hielo', 'puck', 'bruins', 'canadiens', 'maple leafs', 'leafs', 'rangers', 'islanders',
+      'devils', 'flyers', 'penguins', 'capitals', 'hurricanes', 'lightning', 'panthers', 'red wings',
+      'blackhawks', 'blues', 'predators', 'stars', 'avalanche', 'oilers', 'flames', 'canucks', 'knights',
+      'golden knights', 'kraken', 'ducks', 'sharks', 'kings', 'senators', 'sabres', 'wild', 'jets',
+      'blue jackets', 'utah', 'coyotes',
+    ];
+    const esNHL = nhlKeywords.some((k) => pLower.includes(k));
+
     // Palabras clave y equipos para FÚTBOL
     const futbolKeywords = [
       'futbol', 'fútbol', 'soccer', 'premier', 'laliga', 'la liga', 'champions', 'barcelona', 'barça', 'madrid',
@@ -418,7 +432,7 @@ export class ApuestasCronService {
     ];
     const esF1 = f1Keywords.some((k) => pLower.includes(k));
 
-    const algunoEspecifico = esUFC || esMLB || esNFL || esNBA || esFutbol || esF1;
+    const algunoEspecifico = esUFC || esMLB || esNFL || esNBA || esNHL || esFutbol || esF1;
 
     if (algunoEspecifico) {
       lineas.push('⚠️ INSTRUCCIÓN DE ENFOQUE: El usuario pregunta sobre un tema, equipo o combate específico. Centra tu análisis en responder a fondo esa consulta con criterio y profundidad, sin volcar carteleras ajenas ni boletos de otros deportes.\n');
@@ -609,6 +623,42 @@ export class ApuestasCronService {
               esTrampa,
             );
           });
+        }
+      } catch (_) {}
+    }
+
+    // 7. Contexto NHL (Hockey Sobre Hielo)
+    if (esNHL || !algunoEspecifico) {
+      try {
+        const nhl = await this.usSportsService.analizarDeporte('nhl');
+        if (nhl && nhl.juegos && nhl.juegos.length > 0) {
+          lineas.push('\n--- NHL (HOCKEY SOBRE HIELO) ---');
+          const maxJuegos = esNHL ? 16 : 5;
+          nhl.juegos.slice(0, maxJuegos).forEach((j, idx) => {
+            const pr = j.props;
+            const isHomeFav = j.prob_home >= j.prob_away;
+            const fav = isHomeFav ? j.home_team : j.away_team;
+            const favProb = Math.max(j.prob_home, j.prob_away);
+            const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+            const diff = Math.abs(j.prob_home - j.prob_away);
+            const esTrampa = diff <= 5 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+            lineas.push(
+              `${idx + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+              (pr ? ` | Puck Line: ${pr.puckline_away} (${pr.puckline_away_prob}%) | Totales: ${pr.total_line} goles (Over ${pr.over_prob}%, Under ${pr.under_prob}%) | Jugada sugerida: ${pr.jugada_clave}` : '') +
+              esTrampa,
+            );
+          });
+
+          // Inyectar boletos oficiales generados por la app para NHL
+          const packNhl = await this.obtenerPackNHL().catch(() => null);
+          if (packNhl && packNhl.seguro.selecciones.length > 0) {
+            lineas.push('\n[RECOMENDACIÓN OFICIAL ACTUAL DEL MOTOR APEX NHL]:');
+            lineas.push(`• Boleto Seguro Oficial (x2) [Cuota ${packNhl.seguro.cuotaTotal}]: ` + packNhl.seguro.selecciones.map(s => `${s.titulo} [${s.mercado || 'Ganador'}] @ ${s.cuota}`).join(' + '));
+            lineas.push(`• Boleto Multiplicador Oficial [Cuota ${packNhl.multi.cuotaTotal}]: ` + packNhl.multi.selecciones.map(s => `${s.titulo} [${s.mercado || 'Ganador'}] @ ${s.cuota}`).join(' + '));
+            if (packNhl.trampas.length > 0) {
+              lineas.push(`• Trampas/Alertas detectadas por la app: ` + packNhl.trampas.map(t => `${t.duelo} (${t.razon})`).join('; '));
+            }
+          }
         }
       } catch (_) {}
     }
@@ -2721,6 +2771,328 @@ export class ApuestasCronService {
     });
   }
 
+  // ------------------------------------------------------------------
+  // MENÚ Y ACCIONES NHL (HOCKEY SOBRE HIELO)
+  // ------------------------------------------------------------------
+
+  private async obtenerPackNHL() {
+    const res = await this.usSportsService.analizarDeporte('nhl');
+    if (res.error || !res.juegos || res.juegos.length === 0) return null;
+    const matches: any[] = [];
+
+    for (const j of res.juegos) {
+      const isHomeFav = j.prob_home >= j.prob_away;
+      const favName = isHomeFav ? j.home_team : j.away_team;
+      const rivalName = isHomeFav ? j.away_team : j.home_team;
+      const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+      const favProb = Math.max(j.prob_home, j.prob_away);
+      const diff = Math.abs(j.prob_home - j.prob_away);
+
+      matches.push({
+        fav: favName,
+        rival: rivalName,
+        favOdds,
+        favProb,
+        diff,
+        prop: j.props?.jugada_clave,
+        hasValue: j.has_value,
+        mercado: 'Ganador Directo (Moneyline)',
+      });
+
+      // Incluir cobertura Puck Line (+1.5) si tiene certeza >= 65%
+      if (j.props && j.props.puckline_away_prob && j.props.puckline_away_prob >= 65 && j.props.puckline_away) {
+        const plTeam = j.props.puckline_away.split('+')[0]?.trim() || j.away_team;
+        const estOdds = j.odds_away >= 2.2 ? 1.60 : j.odds_away >= 1.9 ? 1.48 : 1.38;
+        matches.push({
+          fav: `${plTeam}`,
+          rival: favName,
+          favOdds: estOdds,
+          favProb: j.props.puckline_away_prob,
+          diff: 20,
+          prop: j.props.jugada_clave,
+          hasValue: false,
+          alerta: 'Cobertura Puck Line (+1.5): Gana si el equipo gana o pierde por solo 1 gol',
+          mercado: 'Puck Line (+1.5 Goles)',
+        });
+      }
+    }
+
+    return this.procesarBoletosDeportivos('NHL', matches, 5);
+  }
+
+  @Action('menu_nhl')
+  async accionMenuNHL(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+
+    await ctx.reply(
+      '🏒 <b>CENTRO CUANTITATIVO NHL (HOCKEY SOBRE HIELO)</b> 🏒\n\n' +
+        'Ratings Elo dinámicos, Puck Line (+/- 1.5), totales de goles (O/U) y valor matemático (+EV):\n\n' +
+        'Selecciona una opción:',
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nhl'),
+          ],
+          [
+            Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nhl_seguro'),
+            Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nhl_multi'),
+          ],
+          [
+            Markup.button.callback('💣 Boleto Bomba', 'opt_nhl_bomba'),
+            Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nhl_estrategia'),
+          ],
+          [
+            Markup.button.callback('📋 Cartelera Completa', 'opt_nhl_partidos'),
+          ],
+          [
+            Markup.button.callback('💎 Apuestas con Valor (+EV)', 'opt_nhl_valor'),
+            Markup.button.callback('🔴 Marcadores en Vivo (ESPN)', 'opt_nhl_live'),
+          ],
+          [Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')],
+        ]),
+      },
+    );
+  }
+
+  @Action('opt_nhl_seguro')
+  async accionNHLSeguro(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Generando Boleto Seguro NHL...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackNHL();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NHL disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('NHL', 'seguro', pack.seguro);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nhl_multi'), Markup.button.callback('💣 Boleto Bomba', 'opt_nhl_bomba')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_nhl_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nhl')],
+        [Markup.button.callback('🔙 Menú NHL', 'menu_nhl')],
+      ]),
+    });
+  }
+
+  @Action('opt_nhl_multi')
+  async accionNHLMulti(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Generando Boleto Multiplicador NHL...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackNHL();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NHL disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('NHL', 'multi', pack.multi);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nhl_seguro'), Markup.button.callback('💣 Boleto Bomba', 'opt_nhl_bomba')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_nhl_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nhl')],
+        [Markup.button.callback('🔙 Menú NHL', 'menu_nhl')],
+      ]),
+    });
+  }
+
+  @Action('opt_nhl_bomba')
+  async accionNHLBomba(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Armando Boleto Bomba (Todos los Partidos NHL)...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackNHL();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NHL disponibles en este momento.');
+    const msg = this.formatearBoletoIndividual('NHL', 'bomba', pack.bomba);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nhl_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nhl_multi')],
+        [Markup.button.callback('🎯 Ver 3 Boletos Juntos', 'opt_nhl_estrategia'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nhl')],
+        [Markup.button.callback('🔙 Menú NHL', 'menu_nhl')],
+      ]),
+    });
+  }
+
+  @Action('opt_nhl_estrategia')
+  async accionNHLEstrategia(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Generando matriz de boletos NHL...</b>', { parse_mode: 'HTML' });
+    const pack = await this.obtenerPackNHL();
+    if (!pack) return ctx.reply('⚠️ No hay datos de partidos NHL disponibles en este momento.');
+    const msg = this.formatearTresBoletosJuntos('NHL', pack);
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nhl_seguro'), Markup.button.callback('🟡 Multiplicador', 'opt_nhl_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_nhl_bomba'), Markup.button.callback('🧠 Pregúntale a Gemini AI', 'opt_gemini_nhl')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_nhl_partidos'), Markup.button.callback('🔙 Menú NHL', 'menu_nhl')],
+      ]),
+    });
+  }
+
+  @Action('opt_gemini_nhl')
+  async accionGeminiNHL(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('🧠 <b>Gemini AI analizando la cartelera de NHL...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.usSportsService.analizarDeporte('nhl');
+    if (res.error || !res.juegos || res.juegos.length === 0) {
+      await ctx.reply(`⚠️ No hay partidos de NHL disponibles para analizar en este momento.`);
+      return;
+    }
+
+    const carteleraTexto = res.juegos.map((j, i) => {
+      const pr = j.props;
+      const isHomeFav = j.prob_home >= j.prob_away;
+      const fav = isHomeFav ? j.home_team : j.away_team;
+      const favProb = Math.max(j.prob_home, j.prob_away);
+      const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+      const diff = Math.abs(j.prob_home - j.prob_away);
+      const esTrampa = diff <= 5 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+      return `${i + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+             (pr ? ` | Puck Line: ${pr.puckline_away} (${pr.puckline_away_prob}%) | Totales: ${pr.total_line} goles (Over ${pr.over_prob}%, Under ${pr.under_prob}%) | Prop: ${pr.jugada_clave}` : '') +
+             esTrampa;
+    }).join('\n');
+
+    const pack = await this.obtenerPackNHL();
+    const dictamen = pack && pack.seguro.selecciones.length > 0
+      ? await this.geminiService.auditarRecomendacionesApp('NHL', pack, carteleraTexto)
+      : await this.geminiService.analizarCartelera('NHL', carteleraTexto);
+    const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
+
+    await ctx.reply(`🧠 <b>EL OJO DE GEMINI AI | NHL</b>\n\n${dictamenLimpio}`, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nhl_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nhl_multi')],
+        [Markup.button.callback('💣 Boleto Bomba', 'opt_nhl_bomba'), Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nhl_estrategia')],
+        [Markup.button.callback('📋 Cartelera Completa', 'opt_nhl_partidos'), Markup.button.callback('🔙 Menú NHL', 'menu_nhl')],
+      ]),
+    }).catch(async () => {
+      await ctx.reply(`🧠 DICTAMEN GEMINI AI | NHL:\n\n${dictamen.replace(/[*#]/g, '')}`, {
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nhl_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nhl_multi')],
+          [Markup.button.callback('💣 Boleto Bomba', 'opt_nhl_bomba'), Markup.button.callback('🔙 Menú NHL', 'menu_nhl')],
+        ]),
+      });
+    });
+  }
+
+  @Action('opt_nhl_valor')
+  async accionNHLValor(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Escaneando cuotas y calculando valor en NHL...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.usSportsService.analizarDeporte('nhl');
+    if (res.error || !res.juegos) {
+      await ctx.reply(`⚠️ ${res.error || 'No se pudieron consultar las cuotas de NHL.'}`);
+      return;
+    }
+
+    const conValor = res.juegos.filter((j) => j.has_value);
+    const div = '──────────────────────────────';
+    let msg = `🏒 <b>NHL: APUESTAS CON VALOR (+EV)</b> 🏒\n` +
+              `<i>Oportunidades con ventaja matemática sobre el mercado</i>\n` +
+              `${div}\n\n`;
+
+    if (conValor.length === 0) {
+      msg += `<i>No se detectaron ventajas matemáticas significativas (Edge >= +3.0%) en esta cartelera de NHL.</i>\n`;
+    } else {
+      conValor.slice(0, 6).forEach((j, idx) => {
+        const fecha = this.formatFechaCorta(j.commence_time);
+        const esDog = (j.value_prob || 0) < 50;
+        const tagDog = esDog ? ' ⚠️ <i>[ALTO RIESGO / UNDERDOG - No usar en parlays]</i>' : ' ✅ <i>[Favorito con Valor]</i>';
+
+        msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>${fecha}${tagDog}\n` +
+               `• <b>Apuesta sugerida:</b> ${j.value_pick}\n` +
+               `• Cuota: <b>${j.value_odds}</b> | Probabilidad IA: <b>${j.value_prob}%</b>\n` +
+               `• Ventaja matemática (+EV): <b>+${j.value_edge}%</b>\n` +
+               `• Margen proyectado: <b>${j.expected_margin > 0 ? `Local +${j.expected_margin}` : `Vis +${Math.abs(j.expected_margin)}`} goles</b>\n` +
+               `• Total proyectado: <b>${j.expected_total} goles</b> (Línea: ${j.book_total || '6.0'})\n` +
+               `${div}\n`;
+      });
+    }
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('📊 Ver Estrategia', 'opt_nhl_estrategia')],
+        [Markup.button.callback('📋 Ver Cartelera', 'opt_nhl_partidos')],
+        [Markup.button.callback('🔙 Volver a NHL', 'menu_nhl')],
+      ]),
+    });
+  }
+
+  @Action('opt_nhl_partidos')
+  async accionNHLPartidos(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Cargando partidos de la NHL...</b>', { parse_mode: 'HTML' });
+
+    const res = await this.usSportsService.analizarDeporte('nhl');
+    if (res.error || !res.juegos) {
+      await ctx.reply(`⚠️ ${res.error || 'No se pudieron consultar los partidos de NHL.'}`);
+      return;
+    }
+
+    const div = '──────────────────────────────';
+    let msg = `🏒 <b>NHL: CARTELERA DE HOCKEY</b> 🏒\n` +
+              `<i>Probabilidades de victoria y líneas de puck</i>\n` +
+              `${div}\n\n`;
+
+    res.juegos.slice(0, 10).forEach((j, idx) => {
+      const fecha = this.formatFechaCorta(j.commence_time);
+      const pr = j.props;
+      msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>${fecha}\n` +
+             `• Moneyline: <b>${j.prob_away}%</b> (${j.odds_away}) vs <b>${j.prob_home}%</b> (${j.odds_home})\n`;
+
+      if (pr) {
+        msg += `• Puck Line (+/- 1.5): ${pr.puckline_home} (<b>${pr.puckline_home_prob}%</b>) | ${pr.puckline_away} (<b>${pr.puckline_away_prob}%</b>)\n` +
+               `• Totales (${pr.total_line} goles): Over <b>${pr.over_prob}%</b> | Under <b>${pr.under_prob}%</b> (IA: ${j.expected_total} goles)\n` +
+               `• 1er Periodo: <b>${pr.p1_pick}</b> (${pr.p1_prob}%) | Prórroga/Penaltis (OT): <b>${pr.ot_prob}%</b>\n` +
+               `• Jugada sugerida: <b>${pr.jugada_clave}</b>\n`;
+      } else {
+        msg += `• Puck Line: <b>+/- 1.5 goles</b> | Total: <b>${j.book_total || '6.0'} goles</b>\n` +
+               `• IA Proyecta: <b>${j.expected_margin > 0 ? `Local +${j.expected_margin}` : `Vis +${Math.abs(j.expected_margin)}`} goles</b> | Total: <b>${j.expected_total}</b>\n`;
+      }
+
+      if (j.has_value) {
+        const dogTag = (j.value_prob || 0) < 50 ? ' <i>[⚠️ Underdog +EV]</i>' : ' <i>[✅ Valor]</i>';
+        msg += `💎 <i>Valor detectado: ${j.value_pick} (+${j.value_edge}%)${dogTag}</i>\n`;
+      }
+      msg += `${div}\n`;
+    });
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('📊 Ver Estrategia', 'opt_nhl_estrategia')],
+        [Markup.button.callback('💎 Solo Apuestas +EV', 'opt_nhl_valor')],
+        [Markup.button.callback('🔙 Volver a NHL', 'menu_nhl')],
+      ]),
+    });
+  }
+
+  @Action('opt_nhl_live')
+  async accionNHLLive(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply('⏳ <b>Consultando marcadores de NHL vía ESPN...</b>', { parse_mode: 'HTML' });
+
+    const marcadores = await this.usSportsService.obtenerMarcadoresESPN('nhl');
+    const div = '──────────────────────────────';
+    let msg = `🏒 <b>MARCADORES EN VIVO NHL (ESPN OFICIAL)</b> 🏒\n${div}\n\n`;
+
+    if (marcadores.length === 0) {
+      msg += `<i>No hay partidos de NHL en juego en este momento.</i>\n`;
+    } else {
+      marcadores.slice(0, 10).forEach((m) => {
+        const liveIcon = m.enVivo ? '🔴 <b>EN VIVO</b>' : '⏱️';
+        msg += `<b>${m.visitante} ${m.puntosVisitante} - ${m.puntosLocal} ${m.local}</b>\n` +
+               `• Estado: ${liveIcon} <i>${m.estado}</i>\n` +
+               `${div}\n`;
+      });
+    }
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🔄 Actualizar Marcadores', 'opt_nhl_live')],
+        [Markup.button.callback('🔙 Volver a NHL', 'menu_nhl')],
+      ]),
+    });
+  }
+
   @Action(/^liga_(.*)/)
   async accionOpcionesLiga(@Ctx() ctx: Context) {
     await ctx.answerCbQuery().catch(() => {});
@@ -3420,6 +3792,7 @@ export class ApuestasCronService {
       const futbolStats = calcStats(todas.filter((a) => a.deporte === 'FUTBOL'));
       const f1Stats = calcStats(todas.filter((a) => a.deporte === 'F1'));
       const ufcStats = calcStats(todas.filter((a) => a.deporte === 'UFC'));
+      const nhlStats = calcStats(todas.filter((a) => a.deporte === 'NHL'));
       const globalStats = calcStats(todas);
 
       const div = '──────────────────────────────';
@@ -3441,6 +3814,12 @@ export class ApuestasCronService {
         `• Pronósticos: <b>${ufcStats.total}</b> (✅ ${ufcStats.ganadas} | ❌ ${ufcStats.perdidas} | ⏳ ${ufcStats.pendientes})\n` +
         `• Tasa de Acierto: <b>${ufcStats.winRate.toFixed(1)}%</b>\n` +
         `• Rendimiento (ROI): <b>${ufcStats.roi >= 0 ? '+' : ''}${ufcStats.roi.toFixed(1)}%</b> (P&L: ${ufcStats.pnl >= 0 ? '+' : ''}${ufcStats.pnl.toFixed(2)} u)\n\n` +
+        (nhlStats.total > 0
+          ? `🏒 <b>NHL (Hockey Sobre Hielo / +EV):</b>\n` +
+            `• Pronósticos: <b>${nhlStats.total}</b> (✅ ${nhlStats.ganadas} | ❌ ${nhlStats.perdidas} | ⏳ ${nhlStats.pendientes})\n` +
+            `• Tasa de Acierto: <b>${nhlStats.winRate.toFixed(1)}%</b>\n` +
+            `• Rendimiento (ROI): <b>${nhlStats.roi >= 0 ? '+' : ''}${nhlStats.roi.toFixed(1)}%</b> (P&L: ${nhlStats.pnl >= 0 ? '+' : ''}${nhlStats.pnl.toFixed(2)} u)\n\n`
+          : '') +
         `${div}\n` +
         `💰 <b>BALANCE GLOBAL TOTAL:</b>\n` +
         `• Total Selecciones: <b>${globalStats.total}</b>\n` +
