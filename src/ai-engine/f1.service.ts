@@ -18,6 +18,8 @@ export interface PilotoF1PredictionInput {
 export class F1Service {
   private readonly logger = new Logger(F1Service.name);
   private readonly pythonUrl = process.env.PYTHON_ML_URL || 'https://pythonmachinelearning.onrender.com';
+  private f1Cache: { timestamp: number; data: any } | null = null;
+  private readonly F1_CACHE_DURATION_MS = 60 * 60 * 1000; // 1 hora en memoria
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -45,6 +47,12 @@ export class F1Service {
   }
 
   async analizarProximoGP() {
+    const ahora = Date.now();
+    if (this.f1Cache && ahora - this.f1Cache.timestamp < this.F1_CACHE_DURATION_MS) {
+      this.logger.log('Retornando análisis de F1 desde caché en memoria.');
+      return this.f1Cache.data;
+    }
+
     let rawData: any = null;
 
     // 1. Prioridad: Motor local FastF1 (inmediato, sin latencia, telemetría real en tiempo real)
@@ -73,10 +81,10 @@ export class F1Service {
       this.logger.warn(`Ejecución local de FastF1 falló o no disponible: ${cliErr.message}`);
     }
 
-    // 2. Si no hay motor local disponible, consultar HTTP API de Python (Render / nube)
+    // 2. Si no hay motor local disponible, consultar HTTP API de Python (Render / nube con timeout suficiente)
     if (!rawData) {
       try {
-        const res = await axios.post(`${this.pythonUrl}/analizar-f1`, {}, { timeout: 12000 });
+        const res = await axios.post(`${this.pythonUrl}/analizar-f1`, {}, { timeout: 75000 });
         if (res.data && Array.isArray(res.data.analisis_f1) && res.data.analisis_f1.length > 0) {
           rawData = res.data;
           this.logger.log('Telemetría FastF1 procesada exitosamente vía HTTP API.');
@@ -176,6 +184,10 @@ export class F1Service {
         }
       }
 
+      this.f1Cache = {
+        timestamp: ahora,
+        data,
+      };
       return data;
     }
 
@@ -208,7 +220,7 @@ export class F1Service {
       };
     });
 
-    return {
+    const fallbackData = {
       gp,
       predicciones_top: {
         pole_position: { piloto: p2, probabilidad: 42 },
@@ -221,14 +233,21 @@ export class F1Service {
         ],
       },
       analisis_f1: fallbackAnalisis,
-      sesion_mas_reciente: 'Practice 2',
-      sesiones_cargadas: ['Practice 1', 'Practice 2'],
+      sesion_mas_reciente: 'Semana de Carrera (Previa Oficial)',
+      sesiones_cargadas: ['Mundial FIA 2026', 'Ritmo de Carrera'],
       lider_sesion_reciente: {
-        nombre: 'Charles Leclerc',
-        equipo: 'Ferrari',
-        sesion: 'Practice 2',
+        nombre: p1,
+        equipo: 'Mercedes',
+        sesion: 'Líder del Campeonato',
       },
     };
+
+    this.f1Cache = {
+      timestamp: ahora,
+      data: fallbackData,
+    };
+
+    return fallbackData;
   }
 
   async registrarAlertaF1(
