@@ -1931,31 +1931,45 @@ export class ApuestasCronService {
     }
 
     const div = '──────────────────────────────';
-    let msg = `🏈 <b>NFL: PRONÓSTICOS Y MERCADOS DE APUESTAS</b> 🏈\n` +
-              `<i>Probabilidades de Moneyline, Spreads de cobertura y Totales</i>\n` +
+    let msg = `🏈 <b>NFL: CARTELERA Y SELECCIONES</b> 🏈\n` +
+              `<i>Selecciones directas analizadas por el motor cuantitativo</i>\n` +
               `${div}\n\n`;
 
     res.juegos.slice(0, 8).forEach((j, idx) => {
       const fecha = this.formatFechaCorta(j.commence_time);
       const pr = j.props;
 
-      msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>${fecha}\n` +
-             `• Moneyline: <b>${j.prob_away}%</b> (${j.odds_away}) vs <b>${j.prob_home}%</b> (${j.odds_home})\n`;
-
+      let pickNFL = '';
       if (pr) {
-        const spreadTxt = (pr.spread_line ?? 0) > 0 ? `+${pr.spread_line}` : `${pr.spread_line}`;
-        msg += `• Hándicap (${spreadTxt} pts): ${j.home_team} <b>${pr.cover_home_prob}%</b> | ${j.away_team} <b>${pr.cover_away_prob}%</b>\n` +
-               `• Totales (${pr.total_line} pts): Over <b>${pr.over_prob}%</b> | Under <b>${pr.under_prob}%</b> (IA: ${j.expected_total} pts)\n` +
-               `• Margen: Victoria sólida 7+ pts (<b>${pr.margen_7_mas_prob}%</b>) | Juego cerrado 1-6 pts (<b>${pr.margen_1_6_prob}%</b>)\n` +
-               `• Jugada sugerida: <b>${pr.jugada_clave}</b>\n`;
+        if (j.prob_home >= 65) {
+          pickNFL = `${j.home_team} a Ganar @ ${j.odds_home}`;
+        } else if (j.prob_away >= 65) {
+          pickNFL = `${j.away_team} a Ganar @ ${j.odds_away}`;
+        } else if ((pr.cover_home_prob ?? 0) >= 56) {
+          const sp = (pr.spread_line ?? 0) > 0 ? `+${pr.spread_line}` : `${pr.spread_line}`;
+          pickNFL = `${j.home_team} ${sp} (Hándicap) @ 1.91`;
+        } else if ((pr.cover_away_prob ?? 0) >= 56) {
+          const sp = -(pr.spread_line ?? 0) > 0 ? `+${-(pr.spread_line ?? 0)}` : `${-(pr.spread_line ?? 0)}`;
+          pickNFL = `${j.away_team} ${sp} (Hándicap) @ 1.91`;
+        } else if ((pr.over_prob ?? 0) >= 58) {
+          pickNFL = `Más de ${pr.total_line} Puntos @ 1.90`;
+        } else if ((pr.under_prob ?? 0) >= 58) {
+          pickNFL = `Menos de ${pr.total_line} Puntos @ 1.90`;
+        } else {
+          pickNFL = pr.jugada_clave || `${j.prob_home >= j.prob_away ? j.home_team : j.away_team} a Ganar`;
+        }
       } else {
-        msg += `• Hándicap Mercado: <b>${j.book_spread || '0'} pts</b> | Total: <b>${j.book_total || 'N/A'} pts</b>\n` +
-               `• IA Proyecta: <b>${j.expected_margin > 0 ? `Local +${j.expected_margin}` : `Vis +${Math.abs(j.expected_margin)}`} pts</b> | Total IA: <b>${j.expected_total}</b>\n`;
+        const fav = j.prob_home >= j.prob_away ? j.home_team : j.away_team;
+        const oddsFav = j.prob_home >= j.prob_away ? j.odds_home : j.odds_away;
+        pickNFL = `${fav} a Ganar @ ${oddsFav}`;
       }
 
-      if (j.has_value) {
-        const dogTag = (j.value_prob || 0) < 50 ? ' <i>[⚠️ Underdog +EV]</i>' : ' <i>[✅ Valor]</i>';
-        msg += `💎 <i>Ventaja detectada: ${j.value_pick} (+${j.value_edge}%)${dogTag}</i>\n`;
+      msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>${fecha}\n` +
+             `👉 <b>Qué apostar:</b> <b>${pickNFL}</b>\n`;
+
+      if (j.has_value && !pickNFL.toLowerCase().includes(j.value_pick?.toLowerCase() || '')) {
+        const dogTag = (j.value_prob || 0) < 50 ? ' <i>[Underdog]</i>' : ' <i>[+EV]</i>';
+        msg += `💎 <i>Opción con valor: ${j.value_pick} (+${j.value_edge}%)${dogTag}</i>\n`;
       }
       msg += `${div}\n`;
     });
@@ -2419,21 +2433,37 @@ export class ApuestasCronService {
         if (j.marcador_ayer) msg += `⏮️ <i>Último juego: ${j.marcador_ayer}</i>\n`;
       }
 
-      msg += `• Moneyline: <b>${j.prob_away}%</b> (${j.odds_away}) vs <b>${j.prob_home}%</b> (${j.odds_home})\n`;
-
+      // Determinar la selección única y definitiva analizando las probabilidades internamente
+      let pickMLB = '';
       if (pr) {
-        msg += `• Runline (+/- 1.5): ${pr.runline_home} (<b>${pr.runline_home_prob}%</b>) | ${pr.runline_away} (<b>${pr.runline_away_prob}%</b>)\n` +
-               `• Totales (${pr.total_line} carreras): Over <b>${pr.over_prob}%</b> | Under <b>${pr.under_prob}%</b> (IA: ${j.expected_total})\n` +
-               `• 1ra Entrada: NRFI Sin Carreras (<b>${pr.nrfi_prob}%</b>) | YRFI Con Carreras (<b>${pr.yrfi_prob}%</b>)\n` +
-               `• Primeras 5 Entradas (F5): ${pr.f5_pick} (<b>${pr.f5_prob}%</b>)\n` +
-               `• Jugada sugerida: <b>${pr.jugada_clave}</b>\n`;
+        if (j.prob_home >= 58) {
+          pickMLB = `${j.home_team} a Ganar @ ${j.odds_home}`;
+        } else if (j.prob_away >= 58) {
+          pickMLB = `${j.away_team} a Ganar @ ${j.odds_away}`;
+        } else if ((pr.over_prob ?? 0) >= 60) {
+          pickMLB = `Más de ${pr.total_line} Carreras @ 1.85`;
+        } else if ((pr.under_prob ?? 0) >= 60) {
+          pickMLB = `Menos de ${pr.total_line} Carreras @ 1.85`;
+        } else if ((pr.runline_away_prob ?? 0) >= 58) {
+          pickMLB = `${pr.runline_away} Runline @ 1.55`;
+        } else if ((pr.runline_home_prob ?? 0) >= 55) {
+          pickMLB = `${pr.runline_home} Runline @ 1.80`;
+        } else if ((pr.nrfi_prob ?? 0) >= 56) {
+          pickMLB = `NRFI (Sin Carreras 1ra Entrada) @ 1.75`;
+        } else {
+          pickMLB = pr.jugada_clave || `${j.prob_home >= j.prob_away ? j.home_team : j.away_team} a Ganar`;
+        }
       } else {
-        msg += `• Carreras Proyectadas: <b>${j.expected_total}</b> (Línea: ${j.book_total || 'N/A'})\n`;
+        const fav = j.prob_home >= j.prob_away ? j.home_team : j.away_team;
+        const oddsFav = j.prob_home >= j.prob_away ? j.odds_home : j.odds_away;
+        pickMLB = `${fav} a Ganar @ ${oddsFav}`;
       }
 
-      if (j.has_value) {
-        const dogTag = (j.value_prob || 0) < 50 ? ' <i>[⚠️ Underdog +EV]</i>' : ' <i>[✅ Valor]</i>';
-        msg += `💎 <i>Valor detectado: ${j.value_pick} (+${j.value_edge}%)${dogTag}</i>\n`;
+      msg += `👉 <b>Qué apostar:</b> <b>${pickMLB}</b>\n`;
+
+      if (j.has_value && !pickMLB.toLowerCase().includes(j.value_pick?.toLowerCase() || '')) {
+        const dogTag = (j.value_prob || 0) < 50 ? ' <i>[Underdog]</i>' : ' <i>[+EV]</i>';
+        msg += `💎 <i>Opción con valor: ${j.value_pick} (+${j.value_edge}%)${dogTag}</i>\n`;
       }
       msg += `${div}\n`;
     });
@@ -2820,30 +2850,45 @@ export class ApuestasCronService {
     }
 
     const div = '──────────────────────────────';
-    let msg = `🏀 <b>NBA: PRONÓSTICOS Y LÍNEAS</b> 🏀\n` +
-              `<i>Probabilidades de victoria y hándicaps</i>\n` +
+    let msg = `🏀 <b>NBA: CARTELERA Y SELECCIONES</b> 🏀\n` +
+              `<i>Selecciones directas analizadas por el motor cuantitativo</i>\n` +
               `${div}\n\n`;
 
     res.juegos.slice(0, 8).forEach((j, idx) => {
       const fecha = this.formatFechaCorta(j.commence_time);
       const pr = j.props;
-      msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>${fecha}\n` +
-             `• Moneyline: <b>${j.prob_away}%</b> (${j.odds_away}) vs <b>${j.prob_home}%</b> (${j.odds_home})\n`;
 
+      let pickNBA = '';
       if (pr) {
-        const spreadTxt = (pr.spread_line ?? 0) > 0 ? `+${pr.spread_line}` : `${pr.spread_line}`;
-        msg += `• Hándicap (${spreadTxt} pts): ${j.home_team} <b>${pr.cover_home_prob}%</b> | ${j.away_team} <b>${pr.cover_away_prob}%</b>\n` +
-               `• Totales (${pr.total_line} pts): Over <b>${pr.over_prob}%</b> | Under <b>${pr.under_prob}%</b> (IA: ${j.expected_total} pts)\n` +
-               `• Margen: Victoria sólida 6+ pts (<b>${pr.margen_6_mas_prob}%</b>) | Final apretado 1-5 pts (<b>${pr.margen_1_5_prob}%</b>)\n` +
-               `• Jugada sugerida: <b>${pr.jugada_clave}</b>\n`;
+        if (j.prob_home >= 65) {
+          pickNBA = `${j.home_team} a Ganar @ ${j.odds_home}`;
+        } else if (j.prob_away >= 65) {
+          pickNBA = `${j.away_team} a Ganar @ ${j.odds_away}`;
+        } else if ((pr.cover_home_prob ?? 0) >= 56) {
+          const sp = (pr.spread_line ?? 0) > 0 ? `+${pr.spread_line}` : `${pr.spread_line}`;
+          pickNBA = `${j.home_team} ${sp} (Hándicap) @ 1.91`;
+        } else if ((pr.cover_away_prob ?? 0) >= 56) {
+          const sp = -(pr.spread_line ?? 0) > 0 ? `+${-(pr.spread_line ?? 0)}` : `${-(pr.spread_line ?? 0)}`;
+          pickNBA = `${j.away_team} ${sp} (Hándicap) @ 1.91`;
+        } else if ((pr.over_prob ?? 0) >= 58) {
+          pickNBA = `Más de ${pr.total_line} Puntos @ 1.90`;
+        } else if ((pr.under_prob ?? 0) >= 58) {
+          pickNBA = `Menos de ${pr.total_line} Puntos @ 1.90`;
+        } else {
+          pickNBA = pr.jugada_clave || `${j.prob_home >= j.prob_away ? j.home_team : j.away_team} a Ganar`;
+        }
       } else {
-        msg += `• Hándicap: <b>${j.book_spread || '0'} pts</b> | Total: <b>${j.book_total || 'N/A'} pts</b>\n` +
-               `• IA Proyecta: <b>${j.expected_margin > 0 ? `Local +${j.expected_margin}` : `Vis +${Math.abs(j.expected_margin)}`} pts</b> | Total: <b>${j.expected_total}</b>\n`;
+        const fav = j.prob_home >= j.prob_away ? j.home_team : j.away_team;
+        const oddsFav = j.prob_home >= j.prob_away ? j.odds_home : j.odds_away;
+        pickNBA = `${fav} a Ganar @ ${oddsFav}`;
       }
 
-      if (j.has_value) {
-        const dogTag = (j.value_prob || 0) < 50 ? ' <i>[⚠️ Underdog +EV]</i>' : ' <i>[✅ Valor]</i>';
-        msg += `💎 <i>Valor detectado: ${j.value_pick} (+${j.value_edge}%)${dogTag}</i>\n`;
+      msg += `<b>${idx + 1}. ${j.away_team} @ ${j.home_team}</b>${fecha}\n` +
+             `👉 <b>Qué apostar:</b> <b>${pickNBA}</b>\n`;
+
+      if (j.has_value && !pickNBA.toLowerCase().includes(j.value_pick?.toLowerCase() || '')) {
+        const dogTag = (j.value_prob || 0) < 50 ? ' <i>[Underdog]</i>' : ' <i>[+EV]</i>';
+        msg += `💎 <i>Opción con valor: ${j.value_pick} (+${j.value_edge}%)${dogTag}</i>\n`;
       }
       msg += `${div}\n`;
     });
