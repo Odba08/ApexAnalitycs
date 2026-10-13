@@ -3792,26 +3792,11 @@ export class ApuestasCronService {
           `📅 <b>Partido Programado / Reciente:</b>\n` +
           `⚔️ <b>${homeName} vs ${awayName}</b> ${resultado}\n\n`;
 
-        const localDB = await this.prisma.equipo.findFirst({
-          where: { nombre: { contains: homeName, mode: 'insensitive' } },
-        });
-        const visitanteDB = await this.prisma.equipo.findFirst({
-          where: { nombre: { contains: awayName, mode: 'insensitive' } },
-        });
-
-        const payload: PartidoInput = {
-          Liga: equipoPrincipal.liga,
-          HomeTeam: homeName,
-          AwayTeam: awayName,
-          HomeElo: localDB ? localDB.elo : 1500,
-          AwayElo: visitanteDB ? visitanteDB.elo : 1500,
-          Form5Home: localDB ? localDB.form5 : 50,
-          Form5Away: visitanteDB ? visitanteDB.form5 : 50,
-          Form3Home: localDB ? localDB.form3 : 50,
-          Form3Away: visitanteDB ? visitanteDB.form3 : 50,
-        };
-
-        const resIA = await this.aiEngine.analizarJornada([payload]);
+        const payload = await this.resolverParametrosPartido(
+          partidoEquipo,
+          equipoPrincipal.liga,
+        );
+        const resIA = payload ? await this.aiEngine.analizarJornada([payload]) : [];
         if (resIA && resIA.length > 0) {
           const ia = resIA[0];
           const p1 = parseFloat(
@@ -3874,6 +3859,197 @@ export class ApuestasCronService {
     }
   }
 
+  private async buscarEquipoDB(nombreRaw: string) {
+    if (!nombreRaw) return null;
+    const clean = nombreRaw.trim();
+
+    // 1. Coincidencia exacta o insensible
+    let eq = await this.prisma.equipo.findFirst({
+      where: { nombre: { equals: clean, mode: 'insensitive' } },
+    });
+    if (eq) return eq;
+
+    // 2. Coincidencia contiene insensible
+    eq = await this.prisma.equipo.findFirst({
+      where: { nombre: { contains: clean, mode: 'insensitive' } },
+    });
+    if (eq) return eq;
+
+    // 3. Normalizar sin acentos y filtrar palabras comunes
+    const sinAcentos = clean.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const tokens = sinAcentos
+      .replace(/\b(fc|cf|club|cd|sc|afc|de|el|la|los|las|the|ac)\b/gi, '')
+      .trim()
+      .split(/\s+/)
+      .filter((t) => t.length > 2);
+
+    for (const token of tokens) {
+      eq = await this.prisma.equipo.findFirst({
+        where: { nombre: { contains: token, mode: 'insensitive' } },
+      });
+      if (eq) return eq;
+    }
+
+    return null;
+  }
+
+  private async resolverParametrosPartido(
+    p: any,
+    ligaNombre: string,
+  ): Promise<PartidoInput | null> {
+    const hRaw = p?.event_home_team || '';
+    const aRaw = p?.event_away_team || '';
+    if (!hRaw || !aRaw) return null;
+
+    const [lDB, vDB] = await Promise.all([
+      this.buscarEquipoDB(hRaw),
+      this.buscarEquipoDB(aRaw),
+    ]);
+
+    const baseEloLiga: Record<string, number> = {
+      Champions: 1820,
+      Premier: 1750,
+      LaLiga: 1730,
+      SerieA: 1710,
+      Bundesliga: 1710,
+      Ligue1: 1670,
+      Portugal: 1650,
+      Eredivisie: 1630,
+      Championship: 1580,
+      Brasileirao: 1620,
+      Libertadores: 1640,
+      SuperLig: 1600,
+      Saudi: 1590,
+    };
+    const baseElo = baseEloLiga[ligaNombre] || 1650;
+
+    let homeElo = lDB ? lDB.elo : baseElo;
+    let awayElo = vDB ? vDB.elo : baseElo;
+    let form5Home = lDB ? lDB.form5 : 8;
+    let form5Away = vDB ? vDB.form5 : 8;
+    let form3Home = lDB ? lDB.form3 : 5;
+    let form3Away = vDB ? vDB.form3 : 5;
+
+    const oH = Number(p.odds_home);
+    const oA = Number(p.odds_away);
+
+    if (oH > 1.01 && oA > 1.01) {
+      const impliedRatio = oA / oH;
+      const deltaEloMercado = Math.round(400 * Math.log10(impliedRatio));
+
+      if (lDB && !vDB) {
+        awayElo = Math.round(lDB.elo - deltaEloMercado + 65);
+      } else if (!lDB && vDB) {
+        homeElo = Math.round(vDB.elo + deltaEloMercado - 65);
+      } else if (!lDB && !vDB) {
+        homeElo = Math.round(baseElo + deltaEloMercado / 2);
+        awayElo = Math.round(baseElo - deltaEloMercado / 2);
+      }
+
+      if (!lDB) {
+        form5Home = Math.min(15, Math.max(1, Math.round(7.5 + (deltaEloMercado / 35))));
+        form3Home = Math.min(9, Math.max(0, Math.round(form5Home * 0.6)));
+      }
+      if (!vDB) {
+        form5Away = Math.min(15, Math.max(1, Math.round(7.5 - (deltaEloMercado / 35))));
+        form3Away = Math.min(9, Math.max(0, Math.round(form5Away * 0.6)));
+      }
+    } else if (!lDB || !vDB) {
+      const hashH = hRaw.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+      const hashA = aRaw.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+      const diffJitter = (hashH % 80) - (hashA % 80);
+
+      if (!lDB && !vDB) {
+        homeElo = baseElo + diffJitter + 35;
+        awayElo = baseElo - diffJitter;
+        form5Home = Math.min(14, Math.max(3, 8 + Math.round(diffJitter / 20)));
+        form5Away = Math.min(14, Math.max(3, 8 - Math.round(diffJitter / 20)));
+        form3Home = Math.round(form5Home * 0.6);
+        form3Away = Math.round(form5Away * 0.6);
+      } else if (!lDB) {
+        homeElo = awayElo + diffJitter + 35;
+        form5Home = Math.min(14, Math.max(3, form5Away + Math.round(diffJitter / 30)));
+        form3Home = Math.round(form5Home * 0.6);
+      } else if (!vDB) {
+        awayElo = homeElo - diffJitter - 35;
+        form5Away = Math.min(14, Math.max(3, form5Home - Math.round(diffJitter / 30)));
+        form3Away = Math.round(form5Away * 0.6);
+      }
+    }
+
+    return {
+      Liga: ligaNombre,
+      HomeTeam: hRaw,
+      AwayTeam: aRaw,
+      HomeElo: homeElo,
+      AwayElo: awayElo,
+      Form5Home: form5Home,
+      Form5Away: form5Away,
+      Form3Home: form3Home,
+      Form3Away: form3Away,
+    };
+  }
+
+  private agruparEnBloquesTelegram(
+    encabezado: string,
+    items: string[],
+    pie: string = '',
+    limiteCaracteres: number = 3200,
+  ): string[] {
+    const bloques: string[] = [];
+    let actual = encabezado;
+
+    for (const item of items) {
+      if ((actual + item).length > limiteCaracteres) {
+        bloques.push(actual);
+        actual = encabezado + item;
+      } else {
+        actual += item;
+      }
+    }
+
+    if (pie) {
+      if ((actual + pie).length > limiteCaracteres) {
+        bloques.push(actual);
+        bloques.push(pie);
+      } else {
+        actual += pie;
+        bloques.push(actual);
+      }
+    } else if (actual.length > 0) {
+      bloques.push(actual);
+    }
+
+    return bloques.length > 0 ? bloques : [encabezado + (pie || '')];
+  }
+
+  private async enviarMensajesEnBloques(
+    ctx: Context,
+    bloques: string[],
+    keyboard?: any,
+  ) {
+    if (!bloques || bloques.length === 0) return;
+
+    for (let i = 0; i < bloques.length; i++) {
+      const isLast = i === bloques.length - 1;
+      const opts: any = { parse_mode: 'HTML' };
+      if (isLast && keyboard) {
+        Object.assign(opts, keyboard);
+      }
+      try {
+        await ctx.reply(bloques[i], opts);
+      } catch (err) {
+        this.logger.error(`Error enviando bloque ${i + 1}/${bloques.length}`, err);
+        const limpio = bloques[i].replace(/<[^>]*>/g, '');
+        if (isLast && keyboard) {
+          await ctx.reply(limpio, keyboard);
+        } else {
+          await ctx.reply(limpio);
+        }
+      }
+    }
+  }
+
   private async procesarApuestasDeLiga(
     ligaInfo: { id: number; nombre: string },
     ctx: Context,
@@ -3882,98 +4058,83 @@ export class ApuestasCronService {
     try {
       const partidosPendientes = await this.obtenerPartidosPendientesLiga(ligaInfo.id);
 
-      const div = '──────────────────────────────';
-      let mensaje = `<b>FÚTBOL: APUESTAS RECOMENDADAS</b>\n` +
-                    `<i>${ligaInfo.nombre.toUpperCase()}</i>\n` +
-                    `${div}\n\n`;
-
-      if (partidosPendientes.length > 0) {
-        const partidosInput: PartidoInput[] = [];
-        for (const p of partidosPendientes.slice(0, 10)) {
-          const h = p?.event_home_team || '';
-          const a = p?.event_away_team || '';
-          if (!h || !a) continue;
-
-          const lDB = await this.prisma.equipo.findFirst({
-            where: { nombre: { contains: h, mode: 'insensitive' } },
-          });
-          const vDB = await this.prisma.equipo.findFirst({
-            where: { nombre: { contains: a, mode: 'insensitive' } },
-          });
-
-          partidosInput.push({
-            Liga: ligaInfo.nombre,
-            HomeTeam: h,
-            AwayTeam: a,
-            HomeElo: lDB ? lDB.elo : 1500,
-            AwayElo: vDB ? vDB.elo : 1500,
-            Form5Home: lDB ? lDB.form5 : 50,
-            Form5Away: vDB ? vDB.form5 : 50,
-            Form3Home: lDB ? lDB.form3 : 50,
-            Form3Away: vDB ? vDB.form3 : 50,
-          });
-        }
-
-        if (partidosInput.length > 0) {
-          const predicciones =
-            await this.aiEngine.analizarJornada(partidosInput);
-
-          predicciones.slice(0, 4).forEach((pred) => {
-            if (!pred || !pred.probabilidades_1X2) return;
-            const p1 = parseFloat(
-              (pred.probabilidades_1X2.Victoria_Local || '0').replace('%', ''),
-            );
-            const pX = parseFloat(
-              (pred.probabilidades_1X2.Empate || '0').replace('%', ''),
-            );
-            const p2 = parseFloat(
-              (pred.probabilidades_1X2.Victoria_Visitante || '0').replace(
-                '%',
-                '',
-              ),
-            );
-
-            const teams = pred.partido.split(' vs ');
-            let recomendada = `Victoria Local (${teams[0]})`;
-            if (p2 > p1 && p2 > pX)
-              recomendada = `Victoria Visitante (${teams[1]})`;
-            else if (pX > p1 && pX > p2) recomendada = `Empate`;
-
-            const xgL = pred.xg_esperados?.xg_local ?? 1.4;
-            const xgV = pred.xg_esperados?.xg_visitante ?? 1.1;
-
-            let marcadoresStr = '';
-            if (pred.marcadores_exactos && pred.marcadores_exactos.length > 0) {
-              marcadoresStr = pred.marcadores_exactos
-                .map((m) => `${m.marcador} (${m.probabilidad})`)
-                .join(', ');
-            }
-
-            mensaje +=
-              `⚽ <b>${pred.partido}</b>\n` +
-              `• <b>Pronóstico IA:</b> ${recomendada}\n` +
-              `• <b>Probabilidades 1X2:</b> Local ${pred.probabilidades_1X2.Victoria_Local} | Empate ${pred.probabilidades_1X2.Empate} | Visitante ${pred.probabilidades_1X2.Victoria_Visitante}\n` +
-              `• <b>Goles y Métricas:</b> xG ${xgL} - ${xgV} | Over 2.5: ${pred.mercado_goles?.Over_2_5 || '0%'} | Ambos anotan: Sí (${pred.ambos_anotan?.Si || '0%'})\n` +
-              `• <b>Marcadores más probables:</b> ${marcadoresStr}\n` +
-              `• <b>Doble Oportunidad:</b> 1X (${pred.doble_oportunidad?.['1X'] || '0%'}) | X2 (${pred.doble_oportunidad?.X2 || '0%'})\n` +
-              `${div}\n`;
-          });
-        }
-      } else {
-        mensaje += `ℹ️ No hay partidos pendientes programados en las próximas fechas para esta competición.\n`;
-      }
-
       const navRow: any[] = [];
       if (ligaKey) {
         navRow.push(Markup.button.callback(`🔙 Volver a ${ligaInfo.nombre}`, `liga_${ligaKey}`));
       }
       navRow.push(Markup.button.callback('⚽ Ligas', 'menu_ligas'));
       navRow.push(Markup.button.callback('🏠 Menú', 'menu_start_redirect'));
+      const keyboard = Markup.inlineKeyboard([navRow]);
 
-      await ctx.reply(mensaje, {
+      if (!partidosPendientes || partidosPendientes.length === 0) {
+        await ctx.reply(
+          `<b>FÚTBOL: APUESTAS RECOMENDADAS</b>\n` +
+          `<i>${ligaInfo.nombre.toUpperCase()}</i>\n` +
+          `──────────────────────────────\n\n` +
+          `ℹ️ No hay partidos pendientes programados en las próximas fechas para esta competición.`,
+          { parse_mode: 'HTML', ...keyboard },
+        );
+        return;
+      }
+
+      await ctx.reply(`⏳ <b>Analizando todos los partidos de la jornada (${partidosPendientes.length} duelos)...</b>`, {
         parse_mode: 'HTML',
-        ...Markup.inlineKeyboard([navRow]),
       });
+
+      const partidosInput: PartidoInput[] = [];
+      for (const p of partidosPendientes.slice(0, 16)) {
+        const param = await this.resolverParametrosPartido(p, ligaInfo.nombre);
+        if (param) partidosInput.push(param);
+      }
+
+      if (partidosInput.length === 0) {
+        await ctx.reply('⚠️ No se pudieron estructurar los partidos para análisis.', keyboard);
+        return;
+      }
+
+      const predicciones = await this.aiEngine.analizarJornada(partidosInput);
+      const div = '──────────────────────────────';
+      const encabezado =
+        `⚽ <b>FÚTBOL: APUESTAS RECOMENDADAS (+EV)</b>\n` +
+        `<i>${ligaInfo.nombre.toUpperCase()} | JORNADA COMPLETA (${predicciones.length} PARTIDOS)</i>\n` +
+        `${div}\n\n`;
+
+      const items: string[] = [];
+      for (const pred of predicciones) {
+        if (!pred || !pred.probabilidades_1X2) continue;
+        const p1 = parseFloat((pred.probabilidades_1X2.Victoria_Local || '0').replace('%', ''));
+        const pX = parseFloat((pred.probabilidades_1X2.Empate || '0').replace('%', ''));
+        const p2 = parseFloat((pred.probabilidades_1X2.Victoria_Visitante || '0').replace('%', ''));
+
+        const teams = pred.partido.split(' vs ');
+        let recomendada = `Victoria Local (${teams[0]})`;
+        if (p2 > p1 && p2 > pX) recomendada = `Victoria Visitante (${teams[1]})`;
+        else if (pX > p1 && pX > p2) recomendada = `Empate (X)`;
+
+        const xgL = pred.xg_esperados?.xg_local ?? 1.4;
+        const xgV = pred.xg_esperados?.xg_visitante ?? 1.1;
+
+        let marcadoresStr = 'N/A';
+        if (pred.marcadores_exactos && pred.marcadores_exactos.length > 0) {
+          marcadoresStr = pred.marcadores_exactos
+            .slice(0, 3)
+            .map((m) => `${m.marcador} (${m.probabilidad})`)
+            .join(', ');
+        }
+
+        const item =
+          `⚽ <b>${pred.partido}</b>\n` +
+          `• <b>Pronóstico IA:</b> ${recomendada}\n` +
+          `• <b>Probabilidades 1X2:</b> Local ${pred.probabilidades_1X2.Victoria_Local} | Empate ${pred.probabilidades_1X2.Empate} | Visitante ${pred.probabilidades_1X2.Victoria_Visitante}\n` +
+          `• <b>Goles y Métricas:</b> xG ${xgL} - ${xgV} | Over 2.5: ${pred.mercado_goles?.Over_2_5 || '0%'} | Ambos anotan: Sí (${pred.ambos_anotan?.Si || '0%'})\n` +
+          `• <b>Marcadores más probables:</b> ${marcadoresStr}\n` +
+          `• <b>Doble Oportunidad:</b> 1X (${pred.doble_oportunidad?.['1X'] || '0%'}) | X2 (${pred.doble_oportunidad?.X2 || '0%'})\n` +
+          `${div}\n`;
+        items.push(item);
+      }
+
+      const bloques = this.agruparEnBloquesTelegram(encabezado, items);
+      await this.enviarMensajesEnBloques(ctx, bloques, keyboard);
     } catch (error) {
       this.logger.error('Error procesando apuestas liga', error);
       await ctx.reply('❌ Error al obtener las apuestas del torneo.');
@@ -3986,128 +4147,205 @@ export class ApuestasCronService {
     ligaKey?: string,
   ) {
     try {
-      await ctx.reply('⏳ <b>Generando matriz estratégica cuantitativa...</b>', { parse_mode: 'HTML' });
-      const partidosPendientes = await this.obtenerPartidosPendientesLiga(ligaInfo.id);
-
-      const div = '──────────────────────────────';
-      let mensaje = `⚽ <b>ESTRATEGIA CUANTITATIVA APEX | ${ligaInfo.nombre.toUpperCase()}</b>\n` +
-                    `<i>Matriz de selección táctica y gestión de riesgo</i>\n` +
-                    `${div}\n\n`;
-
-      if (partidosPendientes.length > 0) {
-        const partidosInput: PartidoInput[] = [];
-        for (const p of partidosPendientes.slice(0, 10)) {
-          const h = p?.event_home_team || '';
-          const a = p?.event_away_team || '';
-          if (!h || !a) continue;
-
-          const lDB = await this.prisma.equipo.findFirst({
-            where: { nombre: { contains: h, mode: 'insensitive' } },
-          });
-          const vDB = await this.prisma.equipo.findFirst({
-            where: { nombre: { contains: a, mode: 'insensitive' } },
-          });
-
-          partidosInput.push({
-            Liga: ligaInfo.nombre,
-            HomeTeam: h,
-            AwayTeam: a,
-            HomeElo: lDB ? lDB.elo : 1500,
-            AwayElo: vDB ? vDB.elo : 1500,
-            Form5Home: lDB ? lDB.form5 : 50,
-            Form5Away: vDB ? vDB.form5 : 50,
-            Form3Home: lDB ? lDB.form3 : 50,
-            Form3Away: vDB ? vDB.form3 : 50,
-          });
-        }
-
-        if (partidosInput.length > 0) {
-          const predicciones = await this.aiEngine.analizarJornada(partidosInput);
-
-          const tierBases: any[] = [];
-          const tierDescartes: any[] = [];
-
-          for (const pred of predicciones) {
-            if (!pred || !pred.probabilidades_1X2) continue;
-            const p1 = parseFloat((pred.probabilidades_1X2.Victoria_Local || '0').replace('%', ''));
-            const pX = parseFloat((pred.probabilidades_1X2.Empate || '0').replace('%', ''));
-            const p2 = parseFloat((pred.probabilidades_1X2.Victoria_Visitante || '0').replace('%', ''));
-            const maxProb = Math.max(p1, pX, p2);
-            const teams = pred.partido.split(' vs ');
-            const homeTeam = teams[0] || 'Local';
-            const awayTeam = teams[1] || 'Visitante';
-
-            const p1X = parseFloat((pred.doble_oportunidad?.['1X'] || '0').replace('%', ''));
-            const pX2 = parseFloat((pred.doble_oportunidad?.X2 || '0').replace('%', ''));
-
-            const xgL = pred.xg_esperados?.xg_local ?? 1.4;
-            const xgV = pred.xg_esperados?.xg_visitante ?? 1.1;
-            const xgDiff = Math.abs(xgL - xgV);
-
-            // 1. Recomendadas / Bases Parlay -> Favorito con prob >= 65% o Doble Oportunidad >= 85%
-            if (maxProb >= 65 || (p1 >= 50 && p1X >= 85) || (p2 >= 50 && pX2 >= 85)) {
-              const pick = p1 >= p2 ? homeTeam : awayTeam;
-              const seguraType = maxProb >= 65 ? `Victoria Directa (${Math.round(maxProb)}%)` : `Doble Oportunidad (${p1 >= p2 ? '1X' : 'X2'}: ${Math.max(p1X, pX2)}%)`;
-              tierBases.push({
-                partido: pred.partido,
-                seleccion: pick,
-                tipo: seguraType,
-                prob: maxProb >= 65 ? Math.round(maxProb) : Math.max(p1X, pX2),
-                xg: `${xgL} vs ${xgV}`,
-              });
-              continue;
-            }
-
-            // 2. Trampas / A Descartar -> Máxima probabilidad < 45% o xG muy parejo
-            if (maxProb < 45 || (maxProb < 52 && xgDiff < 0.25)) {
-              tierDescartes.push({
-                partido: pred.partido,
-                razon: `Paridad extrema (3-vías: ${Math.round(p1)}% L / ${Math.round(pX)}% E / ${Math.round(p2)}% V). Descartar Moneyline directo.`,
-              });
-            }
-          }
-
-          // SECCIÓN 1: RECOMENDADAS & BASES PARLAY
-          mensaje += `<b>1. SELECCIONES RECOMENDADAS & BASES DE PARLAY</b>\n` +
-                     `<i>Máxima probabilidad estadística pura (>65% o Doble Oportunidad >85%):</i>\n\n`;
-          if (tierBases.length === 0) {
-            mensaje += `• <i>No se detectaron favoritos con ventaja estadística concluyente para bases de parlay en esta fecha.</i>\n\n`;
-          } else {
-            tierBases.forEach((t) => {
-              mensaje += `• <b>${t.partido}</b>\n` +
-                         `  Base: <b>${t.seleccion}</b> (${t.tipo})\n` +
-                         `  Métricas xG: <i>${t.xg}</i>\n\n`;
-            });
-          }
-
-          // SECCIÓN 2: A DESCARTAR
-          mensaje += `${div}\n` +
-                     `<b>2. SELECCIONES A EVITAR (DESCARTES Y RIESGO ALTO)</b>\n` +
-                     `<i>Enfrentamientos de alta paridad (volado 3-vías) o riesgo excesivo:</i>\n\n`;
-          if (tierDescartes.length === 0) {
-            mensaje += `• <i>Sin trampas estadísticas detectadas en esta fecha.</i>\n\n`;
-          } else {
-            tierDescartes.forEach((t) => {
-              mensaje += `• <b>${t.partido}</b>\n` +
-                         `  Motivo: <i>${t.razon}</i>\n\n`;
-            });
-          }
-        }
-      } else {
-        mensaje += `ℹ️ No hay partidos pendientes programados en las próximas fechas para esta competición.\n`;
-      }
-
       const navRow: any[] = [];
       if (ligaKey) {
         navRow.push(Markup.button.callback(`🔙 Volver a ${ligaInfo.nombre}`, `liga_${ligaKey}`));
       }
       navRow.push(Markup.button.callback('⚽ Ligas', 'menu_ligas'));
       navRow.push(Markup.button.callback('🏠 Menú', 'menu_start_redirect'));
+      const keyboard = Markup.inlineKeyboard([navRow]);
 
-      await ctx.reply(mensaje, {
+      const partidosPendientes = await this.obtenerPartidosPendientesLiga(ligaInfo.id);
+
+      if (!partidosPendientes || partidosPendientes.length === 0) {
+        await ctx.reply(
+          `⚽ <b>ESTRATEGIA DIRECTA Y SELECCIONES</b>\n` +
+          `<i>${ligaInfo.nombre.toUpperCase()}</i>\n` +
+          `──────────────────────────────\n\n` +
+          `ℹ️ No hay partidos pendientes programados en las próximas fechas para esta competición.`,
+          { parse_mode: 'HTML', ...keyboard },
+        );
+        return;
+      }
+
+      await ctx.reply(`⏳ <b>Armando selecciones directas y boleto parlay de toda la jornada (${partidosPendientes.length} partidos)...</b>`, {
         parse_mode: 'HTML',
-        ...Markup.inlineKeyboard([navRow]),
       });
+
+      const partidosInput: PartidoInput[] = [];
+      for (const p of partidosPendientes.slice(0, 16)) {
+        const param = await this.resolverParametrosPartido(p, ligaInfo.nombre);
+        if (param) partidosInput.push(param);
+      }
+
+      if (partidosInput.length === 0) {
+        await ctx.reply('⚠️ No se pudieron estructurar los partidos para la estrategia.', keyboard);
+        return;
+      }
+
+      const predicciones = await this.aiEngine.analizarJornada(partidosInput);
+      const div = '──────────────────────────────';
+
+      const encabezado =
+        `🎯 <b>ESTRATEGIA Y SELECCIONES DIRECTAS</b>\n` +
+        `<i>${ligaInfo.nombre.toUpperCase()} | ¿QUÉ JUGAR EN CADA PARTIDO?</i>\n` +
+        `${div}\n\n`;
+
+      const items: string[] = [];
+      const parlayCandidates: Array<{ partido: string; seleccion: string; cuotaEst: number; confianza: number }> = [];
+
+      for (const pred of predicciones) {
+        if (!pred || !pred.probabilidades_1X2) continue;
+
+        const p1 = parseFloat((pred.probabilidades_1X2.Victoria_Local || '0').replace('%', ''));
+        const pX = parseFloat((pred.probabilidades_1X2.Empate || '0').replace('%', ''));
+        const p2 = parseFloat((pred.probabilidades_1X2.Victoria_Visitante || '0').replace('%', ''));
+        const p1X = parseFloat((pred.doble_oportunidad?.['1X'] || '0').replace('%', ''));
+        const pX2 = parseFloat((pred.doble_oportunidad?.X2 || '0').replace('%', ''));
+        const pOver25 = parseFloat((pred.mercado_goles?.Over_2_5 || '0').replace('%', ''));
+        const pUnder25 = parseFloat((pred.mercado_goles?.Under_2_5 || '0').replace('%', ''));
+        const pBttsSi = parseFloat((pred.ambos_anotan?.Si || '0').replace('%', ''));
+
+        const xgL = pred.xg_esperados?.xg_local ?? 1.4;
+        const xgV = pred.xg_esperados?.xg_visitante ?? 1.1;
+        const xgTotal = xgL + xgV;
+
+        const teams = pred.partido.split(' vs ');
+        const homeTeam = teams[0] || 'Local';
+        const awayTeam = teams[1] || 'Visitante';
+
+        let jugada = '';
+        let motivo = '';
+        const maxProb = Math.max(p1, pX, p2);
+
+        // 1. Partido Trampa / Paridad Extrema (No tocar 1X2 directo)
+        if (Math.abs(p1 - p2) <= 5 && maxProb < 43 && Math.abs(xgL - xgV) < 0.25) {
+          jugada = `⚠️ EVITAR 1X2 (Paridad extrema / Volado 50-50)`;
+          motivo = `Riesgo alto en ganador directo. Si deseas jugarlo: Over 8.5 Córners o Menos de 3.5 Goles.`;
+        }
+        // 2. Gran Favorito Local (Victoria Directa)
+        else if (p1 >= 54) {
+          jugada = `Victoria Directa (${homeTeam})`;
+          motivo = `${homeTeam} con claro dominio en volumen ofensivo y xG proyectado (${xgL.toFixed(1)} vs ${xgV.toFixed(1)}).`;
+          parlayCandidates.push({
+            partido: `${homeTeam} vs ${awayTeam}`,
+            seleccion: `${homeTeam} (Gana)`,
+            cuotaEst: 1.55,
+            confianza: p1,
+          });
+        }
+        // 3. Gran Favorito Visitante (Victoria Directa)
+        else if (p2 >= 50) {
+          jugada = `Victoria Directa (${awayTeam})`;
+          motivo = `${awayTeam} superior tácticamente y con mayor jerarquía de plantilla.`;
+          parlayCandidates.push({
+            partido: `${homeTeam} vs ${awayTeam}`,
+            seleccion: `${awayTeam} (Gana)`,
+            cuotaEst: 1.65,
+            confianza: p2,
+          });
+        }
+        // 4. Doble Oportunidad Local Segura
+        else if (p1 >= 40 && p1X >= 70) {
+          jugada = `Doble Oportunidad 1X (${homeTeam} o Empate)`;
+          motivo = `${homeTeam} fuerte en su estadio; alta probabilidad de puntuar.`;
+          parlayCandidates.push({
+            partido: `${homeTeam} vs ${awayTeam}`,
+            seleccion: `1X (${homeTeam} o Empate)`,
+            cuotaEst: 1.28,
+            confianza: p1X,
+          });
+        }
+        // 5. Doble Oportunidad Visitante Segura
+        else if (p2 >= 38 && pX2 >= 68) {
+          jugada = `Doble Oportunidad X2 (${awayTeam} o Empate)`;
+          motivo = `${awayTeam} competitivo de visitante; cobertura defensiva garantizada.`;
+          parlayCandidates.push({
+            partido: `${homeTeam} vs ${awayTeam}`,
+            seleccion: `X2 (${awayTeam} o Empate)`,
+            cuotaEst: 1.32,
+            confianza: pX2,
+          });
+        }
+        // 6. Partido Over de Goles
+        else if (pOver25 >= 58 || xgTotal >= 2.9) {
+          jugada = `Más de 2.5 Goles (o Más de 1.5 para asegurar)`;
+          motivo = `Tendencia de partido vertical y abierto (${xgTotal.toFixed(1)} goles esperados en simulación).`;
+          parlayCandidates.push({
+            partido: `${homeTeam} vs ${awayTeam}`,
+            seleccion: `Más de 1.5 Goles`,
+            cuotaEst: 1.30,
+            confianza: Math.min(90, pOver25 + 25),
+          });
+        }
+        // 7. Partido Under de Goles
+        else if (pUnder25 >= 60 || xgTotal <= 2.1) {
+          jugada = `Menos de 2.5 Goles (o Menos de 3.5 en combinada)`;
+          motivo = `Trámite cerrado con defensas pobladas y pocas transiciones claras.`;
+          parlayCandidates.push({
+            partido: `${homeTeam} vs ${awayTeam}`,
+            seleccion: `Menos de 3.5 Goles`,
+            cuotaEst: 1.26,
+            confianza: Math.min(88, pUnder25 + 22),
+          });
+        }
+        // 8. Ambos Anotan
+        else if (pBttsSi >= 56 && xgL >= 1.2 && xgV >= 1.1) {
+          jugada = `Ambos Equipos Anotan: SÍ`;
+          motivo = `Potencial ofensivo en ambas áreas con fragilidad en portería a cero.`;
+          parlayCandidates.push({
+            partido: `${homeTeam} vs ${awayTeam}`,
+            seleccion: `Ambos Anotan: SÍ`,
+            cuotaEst: 1.70,
+            confianza: pBttsSi,
+          });
+        }
+        // 9. Por defecto: Cobertura o Córners
+        else {
+          const prefLocal = p1 >= p2;
+          jugada = prefLocal
+            ? `Doble Oportunidad 1X o Más de 8.5 Córners`
+            : `Doble Oportunidad X2 o Más de 8.5 Córners`;
+          motivo = `Encuentro disputado; la doble oportunidad o el mercado de tiros de esquina es la vía más segura.`;
+          parlayCandidates.push({
+            partido: `${homeTeam} vs ${awayTeam}`,
+            seleccion: prefLocal ? `1X (${homeTeam} o Empate)` : `X2 (${awayTeam} o Empate)`,
+            cuotaEst: 1.30,
+            confianza: Math.max(p1X, pX2),
+          });
+        }
+
+        const item =
+          `⚽ <b>${pred.partido}</b>\n` +
+          `👉 <b>JUGAR:</b> <b>${jugada}</b>\n` +
+          `📌 <i>${motivo}</i>\n\n`;
+        items.push(item);
+      }
+
+      // Armar Boleto Parlay Combinado (Top 4 a 6 selecciones de máxima confianza)
+      let pieParlay = '';
+      if (parlayCandidates.length >= 3) {
+        parlayCandidates.sort((a, b) => b.confianza - a.confianza);
+        const seleccionados = parlayCandidates.slice(0, 5);
+
+        let cuotaAcum = 1.0;
+        let lineasParlay = '';
+        seleccionados.forEach((sel, idx) => {
+          cuotaAcum *= sel.cuotaEst;
+          lineasParlay += `  ${idx + 1}. <b>${sel.partido}:</b> ${sel.seleccion} <i>(~${sel.cuotaEst.toFixed(2)})</i>\n`;
+        });
+
+        pieParlay =
+          `${div}\n` +
+          `🎟️ <b>BOLETO PARLAY COMBINADO RECOMENDADO</b>\n` +
+          `<i>Selección curada para jugar poco dinero y multiplicar cuota:</i>\n\n` +
+          `${lineasParlay}\n` +
+          `📈 <b>Cuota Total Estimada:</b> <b>~${cuotaAcum.toFixed(2)}x</b>\n` +
+          `💰 <i>Ideal para boletos de bajo importe con alto retorno acumulado.</i>\n`;
+      }
+
+      const bloques = this.agruparEnBloquesTelegram(encabezado, items, pieParlay);
+      await this.enviarMensajesEnBloques(ctx, bloques, keyboard);
     } catch (error) {
       this.logger.error('Error procesando estrategia liga', error);
       await ctx.reply('❌ Error al procesar la estrategia del torneo.');
@@ -4306,27 +4544,11 @@ export class ApuestasCronService {
         const ligaNormalizada = normalizarLiga(parseInt(partido?.league_key));
         if (!ligaNormalizada) continue;
 
-        const localDB = await this.prisma.equipo.findFirst({
-          where: { nombre: { contains: nombreLocal, mode: 'insensitive' } },
-        });
-        const visitanteDB = await this.prisma.equipo.findFirst({
-          where: { nombre: { contains: nombreVisitante, mode: 'insensitive' } },
-        });
-
-        const homeElo = localDB ? localDB.elo : 1500;
-        const awayElo = visitanteDB ? visitanteDB.elo : 1500;
-
-        partidosParaAnalizar.push({
-          Liga: ligaNormalizada,
-          HomeTeam: nombreLocal,
-          AwayTeam: nombreVisitante,
-          HomeElo: homeElo,
-          AwayElo: awayElo,
-          Form5Home: localDB ? localDB.form5 : 50,
-          Form5Away: visitanteDB ? visitanteDB.form5 : 50,
-          Form3Home: localDB ? localDB.form3 : 50,
-          Form3Away: visitanteDB ? visitanteDB.form3 : 50,
-        });
+        const param = await this.resolverParametrosPartido(
+          partido,
+          ligaNormalizada,
+        );
+        if (param) partidosParaAnalizar.push(param);
       }
 
       if (partidosParaAnalizar.length === 0) {

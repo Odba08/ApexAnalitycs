@@ -41,16 +41,46 @@ export class SportsApiService {
       const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?apiKey=${this.theOddsApiKey}&regions=eu&markets=h2h`;
       const res = await axios.get(url, { headers: { 'User-Agent': 'ApexAnalytics/1.0' } });
       if (Array.isArray(res.data) && res.data.length > 0) {
-        return res.data.map((m: any) => ({
-          event_key: m.id,
-          event_date: m.commence_time.slice(0, 10),
-          event_time: m.commence_time.slice(11, 16),
-          event_home_team: m.home_team,
-          event_away_team: m.away_team,
-          event_final_result: '',
-          event_status: '',
-          league_key: leagueId,
-        }));
+        return res.data.map((m: any) => {
+          let odds_home = 2.20;
+          let odds_away = 2.80;
+          let odds_draw = 3.30;
+
+          const bookmaker =
+            m.bookmakers?.find((b: any) =>
+              b.markets?.some((mk: any) => mk.key === 'h2h'),
+            ) || m.bookmakers?.[0];
+
+          if (bookmaker) {
+            const h2h = bookmaker.markets?.find((mk: any) => mk.key === 'h2h');
+            if (h2h && Array.isArray(h2h.outcomes)) {
+              const hOut = h2h.outcomes.find((o: any) => o.name === m.home_team);
+              const aOut = h2h.outcomes.find((o: any) => o.name === m.away_team);
+              const dOut = h2h.outcomes.find(
+                (o: any) =>
+                  o.name.toLowerCase() === 'draw' ||
+                  o.name.toLowerCase() === 'empate',
+              );
+              if (hOut?.price) odds_home = Number(hOut.price);
+              if (aOut?.price) odds_away = Number(aOut.price);
+              if (dOut?.price) odds_draw = Number(dOut.price);
+            }
+          }
+
+          return {
+            event_key: m.id,
+            event_date: m.commence_time.slice(0, 10),
+            event_time: m.commence_time.slice(11, 16),
+            event_home_team: m.home_team,
+            event_away_team: m.away_team,
+            event_final_result: '',
+            event_status: '',
+            league_key: leagueId,
+            odds_home,
+            odds_away,
+            odds_draw,
+          };
+        });
       }
       return [];
     } catch (err: any) {

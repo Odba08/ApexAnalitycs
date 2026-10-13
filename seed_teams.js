@@ -1,0 +1,183 @@
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+
+const TEAMS_DATA = [
+  // Premier League
+  { nombre: 'Manchester City', liga: 'Premier', elo: 2040, form5: 12, form3: 7 },
+  { nombre: 'Arsenal', liga: 'Premier', elo: 1960, form5: 13, form3: 9 },
+  { nombre: 'Liverpool', liga: 'Premier', elo: 1970, form5: 14, form3: 9 },
+  { nombre: 'Chelsea', liga: 'Premier', elo: 1820, form5: 10, form3: 6 },
+  { nombre: 'Aston Villa', liga: 'Premier', elo: 1810, form5: 9, form3: 6 },
+  { nombre: 'Tottenham', liga: 'Premier', elo: 1800, form5: 9, form3: 6 },
+  { nombre: 'Newcastle', liga: 'Premier', elo: 1770, form5: 8, form3: 4 },
+  { nombre: 'Manchester United', liga: 'Premier', elo: 1790, form5: 7, form3: 4 },
+  { nombre: 'Brighton', liga: 'Premier', elo: 1730, form5: 7, form3: 4 },
+  { nombre: 'West Ham', liga: 'Premier', elo: 1700, form5: 6, form3: 3 },
+  { nombre: 'Fulham', liga: 'Premier', elo: 1690, form5: 7, form3: 4 },
+  { nombre: 'Bournemouth', liga: 'Premier', elo: 1670, form5: 6, form3: 3 },
+  { nombre: 'Brentford', liga: 'Premier', elo: 1680, form5: 6, form3: 3 },
+  { nombre: 'Crystal Palace', liga: 'Premier', elo: 1660, form5: 5, form3: 2 },
+  { nombre: 'Everton', liga: 'Premier', elo: 1650, form5: 5, form3: 2 },
+  { nombre: 'Nottingham Forest', liga: 'Premier', elo: 1660, form5: 6, form3: 3 },
+  { nombre: 'Wolverhampton', liga: 'Premier', elo: 1640, form5: 4, form3: 1 },
+  { nombre: 'Leicester City', liga: 'Premier', elo: 1630, form5: 5, form3: 2 },
+  { nombre: 'Ipswich Town', liga: 'Premier', elo: 1580, form5: 4, form3: 2 },
+  { nombre: 'Southampton', liga: 'Premier', elo: 1570, form5: 3, form3: 1 },
+
+  // LaLiga
+  { nombre: 'Real Madrid', liga: 'LaLiga', elo: 2020, form5: 13, form3: 9 },
+  { nombre: 'Barcelona', liga: 'LaLiga', elo: 1990, form5: 13, form3: 9 },
+  { nombre: 'FC Barcelona', liga: 'LaLiga', elo: 1990, form5: 13, form3: 9 },
+  { nombre: 'Atlético Madrid', liga: 'LaLiga', elo: 1880, form5: 10, form3: 7 },
+  { nombre: 'Atlético de Madrid', liga: 'LaLiga', elo: 1880, form5: 10, form3: 7 },
+  { nombre: 'Athletic Bilbao', liga: 'LaLiga', elo: 1800, form5: 9, form3: 6 },
+  { nombre: 'Real Sociedad', liga: 'LaLiga', elo: 1770, form5: 7, form3: 4 },
+  { nombre: 'Villarreal', liga: 'LaLiga', elo: 1780, form5: 9, form3: 6 },
+  { nombre: 'Real Betis', liga: 'LaLiga', elo: 1750, form5: 8, form3: 4 },
+  { nombre: 'Girona', liga: 'LaLiga', elo: 1760, form5: 8, form3: 5 },
+  { nombre: 'Sevilla', liga: 'LaLiga', elo: 1720, form5: 7, form3: 4 },
+  { nombre: 'Celta Vigo', liga: 'LaLiga', elo: 1680, form5: 6, form3: 3 },
+  { nombre: 'Osasuna', liga: 'LaLiga', elo: 1690, form5: 7, form3: 4 },
+  { nombre: 'Mallorca', liga: 'LaLiga', elo: 1680, form5: 7, form3: 4 },
+  { nombre: 'Rayo Vallecano', liga: 'LaLiga', elo: 1670, form5: 6, form3: 3 },
+  { nombre: 'Valencia', liga: 'LaLiga', elo: 1660, form5: 5, form3: 2 },
+  { nombre: 'Getafe', liga: 'LaLiga', elo: 1650, form5: 5, form3: 2 },
+  { nombre: 'Alaves', liga: 'LaLiga', elo: 1640, form5: 5, form3: 2 },
+  { nombre: 'Espanyol', liga: 'LaLiga', elo: 1620, form5: 4, form3: 2 },
+  { nombre: 'Las Palmas', liga: 'LaLiga', elo: 1610, form5: 3, form3: 1 },
+  { nombre: 'Leganes', liga: 'LaLiga', elo: 1600, form5: 4, form3: 2 },
+  { nombre: 'Valladolid', liga: 'LaLiga', elo: 1590, form5: 3, form3: 1 },
+
+  // Bundesliga
+  { nombre: 'Bayern Munich', liga: 'Bundesliga', elo: 2000, form5: 13, form3: 9 },
+  { nombre: 'Bayer Leverkusen', liga: 'Bundesliga', elo: 1920, form5: 11, form3: 7 },
+  { nombre: 'Borussia Dortmund', liga: 'Bundesliga', elo: 1840, form5: 9, form3: 6 },
+  { nombre: 'RB Leipzig', liga: 'Bundesliga', elo: 1830, form5: 10, form3: 7 },
+  { nombre: 'VfB Stuttgart', liga: 'Bundesliga', elo: 1770, form5: 8, form3: 5 },
+  { nombre: 'Eintracht Frankfurt', liga: 'Bundesliga', elo: 1760, form5: 9, form3: 6 },
+  { nombre: 'Freiburg', liga: 'Bundesliga', elo: 1730, form5: 8, form3: 5 },
+  { nombre: 'Wolfsburg', liga: 'Bundesliga', elo: 1690, form5: 6, form3: 3 },
+  { nombre: 'Borussia Monchengladbach', liga: 'Bundesliga', elo: 1680, form5: 6, form3: 3 },
+  { nombre: 'Union Berlin', liga: 'Bundesliga', elo: 1690, form5: 7, form3: 4 },
+  { nombre: 'Werder Bremen', liga: 'Bundesliga', elo: 1680, form5: 6, form3: 3 },
+  { nombre: 'Hoffenheim', liga: 'Bundesliga', elo: 1670, form5: 5, form3: 2 },
+  { nombre: 'Augsburg', liga: 'Bundesliga', elo: 1650, form5: 5, form3: 2 },
+  { nombre: 'Mainz 05', liga: 'Bundesliga', elo: 1660, form5: 6, form3: 3 },
+  { nombre: 'St. Pauli', liga: 'Bundesliga', elo: 1590, form5: 4, form3: 2 },
+  { nombre: 'Heidenheim', liga: 'Bundesliga', elo: 1650, form5: 6, form3: 3 },
+  { nombre: 'Bochum', liga: 'Bundesliga', elo: 1570, form5: 2, form3: 1 },
+  { nombre: 'Holstein Kiel', liga: 'Bundesliga', elo: 1560, form5: 2, form3: 1 },
+
+  // Serie A
+  { nombre: 'Inter Milan', liga: 'SerieA', elo: 1940, form5: 12, form3: 8 },
+  { nombre: 'Inter', liga: 'SerieA', elo: 1940, form5: 12, form3: 8 },
+  { nombre: 'Juventus', liga: 'SerieA', elo: 1840, form5: 10, form3: 7 },
+  { nombre: 'Napoli', liga: 'SerieA', elo: 1830, form5: 11, form3: 7 },
+  { nombre: 'AC Milan', liga: 'SerieA', elo: 1810, form5: 9, form3: 6 },
+  { nombre: 'Milan', liga: 'SerieA', elo: 1810, form5: 9, form3: 6 },
+  { nombre: 'Atalanta', liga: 'SerieA', elo: 1830, form5: 9, form3: 6 },
+  { nombre: 'AS Roma', liga: 'SerieA', elo: 1780, form5: 8, form3: 5 },
+  { nombre: 'Roma', liga: 'SerieA', elo: 1780, form5: 8, form3: 5 },
+  { nombre: 'Lazio', liga: 'SerieA', elo: 1770, form5: 8, form3: 5 },
+  { nombre: 'Fiorentina', liga: 'SerieA', elo: 1750, form5: 8, form3: 5 },
+  { nombre: 'Bologna', liga: 'SerieA', elo: 1740, form5: 7, form3: 4 },
+  { nombre: 'Torino', liga: 'SerieA', elo: 1700, form5: 7, form3: 4 },
+  { nombre: 'Como', liga: 'SerieA', elo: 1630, form5: 5, form3: 3 },
+  { nombre: 'Udinese', liga: 'SerieA', elo: 1680, form5: 7, form3: 4 },
+  { nombre: 'Empoli', liga: 'SerieA', elo: 1660, form5: 6, form3: 3 },
+  { nombre: 'Parma', liga: 'SerieA', elo: 1630, form5: 5, form3: 2 },
+  { nombre: 'Verona', liga: 'SerieA', elo: 1630, form5: 5, form3: 2 },
+  { nombre: 'Cagliari', liga: 'SerieA', elo: 1620, form5: 4, form3: 2 },
+  { nombre: 'Genoa', liga: 'SerieA', elo: 1650, form5: 5, form3: 2 },
+  { nombre: 'Monza', liga: 'SerieA', elo: 1640, form5: 4, form3: 2 },
+  { nombre: 'Lecce', liga: 'SerieA', elo: 1610, form5: 4, form3: 1 },
+  { nombre: 'Venezia', liga: 'SerieA', elo: 1580, form5: 3, form3: 1 },
+
+  // Ligue 1
+  { nombre: 'Paris Saint-Germain', liga: 'Ligue1', elo: 1910, form5: 13, form3: 9 },
+  { nombre: 'Paris Saint Germain', liga: 'Ligue1', elo: 1910, form5: 13, form3: 9 },
+  { nombre: 'Monaco', liga: 'Ligue1', elo: 1800, form5: 11, form3: 8 },
+  { nombre: 'Marseille', liga: 'Ligue1', elo: 1770, form5: 10, form3: 7 },
+  { nombre: 'Lille', liga: 'Ligue1', elo: 1770, form5: 9, form3: 6 },
+  { nombre: 'RC Lens', liga: 'Ligue1', elo: 1740, form5: 8, form3: 5 },
+  { nombre: 'Lens', liga: 'Ligue1', elo: 1740, form5: 8, form3: 5 },
+  { nombre: 'Lyon', liga: 'Ligue1', elo: 1730, form5: 7, form3: 4 },
+  { nombre: 'Rennes', liga: 'Ligue1', elo: 1710, form5: 6, form3: 3 },
+  { nombre: 'Nice', liga: 'Ligue1', elo: 1720, form5: 7, form3: 4 },
+  { nombre: 'Brest', liga: 'Ligue1', elo: 1710, form5: 7, form3: 4 },
+  { nombre: 'Strasbourg', liga: 'Ligue1', elo: 1660, form5: 6, form3: 3 },
+  { nombre: 'Reims', liga: 'Ligue1', elo: 1680, form5: 7, form3: 4 },
+  { nombre: 'Toulouse', liga: 'Ligue1', elo: 1650, form5: 5, form3: 2 },
+  { nombre: 'Nantes', liga: 'Ligue1', elo: 1640, form5: 5, form3: 2 },
+  { nombre: 'Auxerre', liga: 'Ligue1', elo: 1620, form5: 5, form3: 2 },
+  { nombre: 'Saint-Etienne', liga: 'Ligue1', elo: 1590, form5: 4, form3: 2 },
+  { nombre: 'Angers', liga: 'Ligue1', elo: 1580, form5: 3, form3: 1 },
+  { nombre: 'Le Havre', liga: 'Ligue1', elo: 1590, form5: 4, form3: 2 },
+  { nombre: 'Montpellier', liga: 'Ligue1', elo: 1600, form5: 3, form3: 1 },
+
+  // Portugal & Eredivisie & Rest of Europe (Champions League participants)
+  { nombre: 'Sporting Lisbon', liga: 'Portugal', elo: 1840, form5: 14, form3: 9 },
+  { nombre: 'Sporting CP', liga: 'Portugal', elo: 1840, form5: 14, form3: 9 },
+  { nombre: 'Benfica', liga: 'Portugal', elo: 1830, form5: 11, form3: 7 },
+  { nombre: 'Porto', liga: 'Portugal', elo: 1810, form5: 11, form3: 7 },
+  { nombre: 'Braga', liga: 'Portugal', elo: 1730, form5: 8, form3: 5 },
+  { nombre: 'PSV Eindhoven', liga: 'Eredivisie', elo: 1790, form5: 13, form3: 9 },
+  { nombre: 'PSV', liga: 'Eredivisie', elo: 1790, form5: 13, form3: 9 },
+  { nombre: 'Feyenoord', liga: 'Eredivisie', elo: 1770, form5: 10, form3: 7 },
+  { nombre: 'Ajax', liga: 'Eredivisie', elo: 1730, form5: 9, form3: 6 },
+  { nombre: 'AZ Alkmaar', liga: 'Eredivisie', elo: 1710, form5: 8, form3: 5 },
+  { nombre: 'Galatasaray', liga: 'SuperLig', elo: 1740, form5: 12, form3: 8 },
+  { nombre: 'Fenerbahce', liga: 'SuperLig', elo: 1730, form5: 11, form3: 7 },
+  { nombre: 'Besiktas', liga: 'SuperLig', elo: 1690, form5: 9, form3: 6 },
+  { nombre: 'Slavia Praha', liga: 'Champions', elo: 1720, form5: 11, form3: 7 },
+  { nombre: 'Sparta Praha', liga: 'Champions', elo: 1700, form5: 9, form3: 6 },
+  { nombre: 'Club Brugge', liga: 'Champions', elo: 1700, form5: 9, form3: 6 },
+  { nombre: 'Shakhtar Donetsk', liga: 'Champions', elo: 1690, form5: 8, form3: 5 },
+  { nombre: 'Dinamo Zagreb', liga: 'Champions', elo: 1680, form5: 8, form3: 5 },
+  { nombre: 'Crvena Zvezda', liga: 'Champions', elo: 1670, form5: 9, form3: 6 },
+  { nombre: 'Red Star Belgrade', liga: 'Champions', elo: 1670, form5: 9, form3: 6 },
+  { nombre: 'Young Boys', liga: 'Champions', elo: 1660, form5: 7, form3: 4 },
+  { nombre: 'Celtic', liga: 'Champions', elo: 1700, form5: 11, form3: 8 },
+  { nombre: 'Rangers', liga: 'Champions', elo: 1670, form5: 8, form3: 5 },
+  { nombre: 'Bodø/Glimt', liga: 'Champions', elo: 1670, form5: 9, form3: 6 },
+  { nombre: 'Bodo/Glimt', liga: 'Champions', elo: 1670, form5: 9, form3: 6 },
+  { nombre: 'Viking FK', liga: 'Champions', elo: 1540, form5: 7, form3: 4 },
+  { nombre: 'Sabah FK', liga: 'Champions', elo: 1480, form5: 5, form3: 3 },
+  { nombre: 'LASK', liga: 'Champions', elo: 1610, form5: 6, form3: 3 },
+  { nombre: 'AEK Athens', liga: 'Champions', elo: 1650, form5: 8, form3: 5 },
+  { nombre: 'ŠK Slovan Bratislava', liga: 'Champions', elo: 1580, form5: 7, form3: 4 },
+  { nombre: 'Slovan Bratislava', liga: 'Champions', elo: 1580, form5: 7, form3: 4 },
+  { nombre: 'Sturm Graz', liga: 'Champions', elo: 1670, form5: 8, form3: 5 },
+  { nombre: 'Salzburg', liga: 'Champions', elo: 1710, form5: 9, form3: 6 },
+];
+
+async function main() {
+  console.log(`Seeding ${TEAMS_DATA.length} major teams into Equipo table...`);
+  let created = 0;
+  let updated = 0;
+
+  for (const t of TEAMS_DATA) {
+    const res = await prisma.equipo.upsert({
+      where: { nombre: t.nombre },
+      update: {
+        liga: t.liga,
+        elo: t.elo,
+        form5: t.form5,
+        form3: t.form3,
+      },
+      create: {
+        nombre: t.nombre,
+        liga: t.liga,
+        elo: t.elo,
+        form5: t.form5,
+        form3: t.form3,
+      },
+    });
+    if (res) created++;
+  }
+
+  const total = await prisma.equipo.count();
+  console.log(`✅ Seeding complete! Total teams in DB: ${total}`);
+}
+
+main().catch(console.error).finally(() => prisma.$disconnect());
