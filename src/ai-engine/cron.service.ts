@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { AiEngineService, PartidoInput } from './ai-engine.service';
+import { AiEngineService, PartidoInput, AnalisisIA } from './ai-engine.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { InjectBot, Update, Command, Ctx, Action, On } from 'nestjs-telegraf';
 import { Telegraf, Context, Markup } from 'telegraf';
@@ -3847,7 +3847,14 @@ export class ApuestasCronService {
           partidoEquipo,
           equipoPrincipal.liga,
         );
-        const resIA = payload ? await this.aiEngine.analizarJornada([payload]) : [];
+        let resIA: AnalisisIA[] = [];
+        if (payload) {
+          try {
+            resIA = await this.aiEngine.analizarJornada([payload]);
+          } catch {
+            resIA = this.generarAnalisisContingencia([payload]);
+          }
+        }
         if (resIA && resIA.length > 0) {
           const ia = resIA[0];
           const p1 = parseFloat(
@@ -4043,6 +4050,73 @@ export class ApuestasCronService {
     };
   }
 
+  private generarAnalisisContingencia(partidos: PartidoInput[]): AnalisisIA[] {
+    return partidos.map((p) => {
+      const eloDiff = p.HomeElo - p.AwayElo;
+      const formDiff = p.Form5Home - p.Form5Away;
+
+      // Base Dixon-Coles calibrada por liga
+      const xgH = Math.max(0.4, Math.min(4.0, 1.55 + (eloDiff / 320) + (formDiff / 240) + 0.20));
+      const xgA = Math.max(0.3, Math.min(4.0, 1.25 - (eloDiff / 320) - (formDiff / 240)));
+
+      // Probabilidades Poisson
+      const factorial = (n: number): number => (n <= 1 ? 1 : n * factorial(n - 1));
+      const poissonPmf = (k: number, lambda: number) => (Math.exp(-lambda) * Math.pow(lambda, k)) / factorial(k);
+
+      const scores: Array<{ h: number; a: number; p: number }> = [];
+      let tot = 0;
+      for (let h = 0; h <= 5; h++) {
+        for (let a = 0; a <= 5; a++) {
+          const prob = poissonPmf(h, xgH) * poissonPmf(a, xgA);
+          scores.push({ h, a, p: prob });
+          tot += prob;
+        }
+      }
+
+      scores.forEach((s) => (s.p = s.p / (tot || 1)));
+      scores.sort((a, b) => b.p - a.p);
+
+      const pH = scores.filter((s) => s.h > s.a).reduce((acc, s) => acc + s.p, 0);
+      const pD = scores.filter((s) => s.h === s.a).reduce((acc, s) => acc + s.p, 0);
+      const pA = scores.filter((s) => s.h < s.a).reduce((acc, s) => acc + s.p, 0);
+      const pOver = scores.filter((s) => s.h + s.a > 2.5).reduce((acc, s) => acc + s.p, 0);
+      const pBtts = scores.filter((s) => s.h > 0 && s.a > 0).reduce((acc, s) => acc + s.p, 0);
+
+      const top3 = scores.slice(0, 3).map((s) => ({
+        marcador: `${s.h}-${s.a}`,
+        probabilidad: `${(s.p * 100).toFixed(1)}%`,
+      }));
+
+      return {
+        partido: `${p.HomeTeam} vs ${p.AwayTeam}`,
+        liga: p.Liga,
+        xg_esperados: {
+          xg_local: parseFloat(xgH.toFixed(2)),
+          xg_visitante: parseFloat(xgA.toFixed(2)),
+        },
+        probabilidades_1X2: {
+          Victoria_Local: `${(pH * 100).toFixed(2)}%`,
+          Empate: `${(pD * 100).toFixed(2)}%`,
+          Victoria_Visitante: `${(pA * 100).toFixed(2)}%`,
+        },
+        doble_oportunidad: {
+          '1X': `${((pH + pD) * 100).toFixed(2)}%`,
+          X2: `${((pA + pD) * 100).toFixed(2)}%`,
+          '12': `${((pH + pA) * 100).toFixed(2)}%`,
+        },
+        mercado_goles: {
+          Over_2_5: `${(pOver * 100).toFixed(2)}%`,
+          Under_2_5: `${((1 - pOver) * 100).toFixed(2)}%`,
+        },
+        ambos_anotan: {
+          Si: `${(pBtts * 100).toFixed(2)}%`,
+          No: `${((1 - pBtts) * 100).toFixed(2)}%`,
+        },
+        marcadores_exactos: top3,
+      };
+    });
+  }
+
   private agruparEnBloquesTelegram(
     encabezado: string,
     items: string[],
@@ -4145,7 +4219,13 @@ export class ApuestasCronService {
         return;
       }
 
-      const predicciones = await this.aiEngine.analizarJornada(partidosInput);
+      let predicciones: AnalisisIA[] = [];
+      try {
+        predicciones = await this.aiEngine.analizarJornada(partidosInput);
+      } catch (err: any) {
+        this.logger.warn(`Fallo motor Python ML en apuestas liga, activando motor cuantitativo local: ${err.message}`);
+        predicciones = this.generarAnalisisContingencia(partidosInput);
+      }
       const div = '──────────────────────────────';
       const encabezado =
         `⚽ <b>FÚTBOL: APUESTAS RECOMENDADAS (+EV)</b>\n` +
@@ -4236,7 +4316,13 @@ export class ApuestasCronService {
         return;
       }
 
-      const predicciones = await this.aiEngine.analizarJornada(partidosInput);
+      let predicciones: AnalisisIA[] = [];
+      try {
+        predicciones = await this.aiEngine.analizarJornada(partidosInput);
+      } catch (err: any) {
+        this.logger.warn(`Fallo motor Python ML en estrategia liga, activando motor cuantitativo local: ${err.message}`);
+        predicciones = this.generarAnalisisContingencia(partidosInput);
+      }
       const div = '──────────────────────────────';
 
       const encabezado =
@@ -4642,8 +4728,13 @@ export class ApuestasCronService {
         return;
       }
 
-      const resultados =
-        await this.aiEngine.analizarJornada(partidosParaAnalizar);
+      let resultados: AnalisisIA[] = [];
+      try {
+        resultados = await this.aiEngine.analizarJornada(partidosParaAnalizar);
+      } catch (err: any) {
+        this.logger.warn(`Python ML no respondió a tiempo en jornada general, activando motor cuantitativo local: ${err.message}`);
+        resultados = this.generarAnalisisContingencia(partidosParaAnalizar);
+      }
       let mensaje = `🏆 <b>TOP APUESTAS RECOMENDADAS DE LA JORNADA (+EV)</b> 🏆\n\n`;
       let count = 0;
 

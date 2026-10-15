@@ -46,23 +46,33 @@ export class AiEngineService {
   constructor(private readonly httpService: HttpService) {}
 
   async analizarJornada(partidos: PartidoInput[]): Promise<AnalisisIA[]> {
-    try {
-      this.logger.log(
-        `Enviando ${partidos.length} partidos al motor cuantitativo (Python)...`,
-      );
+    const targetUrl = `${this.pythonBaseUrl}/analizar-completo`;
+    this.logger.log(
+      `Enviando ${partidos.length} partidos al motor cuantitativo (Python)...`,
+    );
 
-      const targetUrl = `${this.pythonBaseUrl}/analizar-completo`;
-      const response: AxiosResponse<ApiResponse> = await firstValueFrom(
-        this.httpService.post<ApiResponse>(targetUrl, partidos, { timeout: 30000 }),
-      );
+    // Intentar hasta 2 veces con timeout de 70s para tolerar cold-starts en Render
+    for (let intento = 1; intento <= 2; intento++) {
+      try {
+        const response: AxiosResponse<ApiResponse> = await firstValueFrom(
+          this.httpService.post<ApiResponse>(targetUrl, partidos, { timeout: 70000 }),
+        );
 
-      return response.data.analisis_multiliga;
-    } catch (error) {
-      this.logger.error(
-        'Error al comunicar con el microservicio de Python',
-        error,
-      );
-      throw new Error('Fallo en el motor de inferencia');
+        if (response.data && Array.isArray(response.data.analisis_multiliga)) {
+          return response.data.analisis_multiliga;
+        }
+      } catch (error: any) {
+        this.logger.warn(
+          `Intento ${intento}/2 falló al comunicar con Python ML (${error.message})`,
+        );
+        if (intento === 2) {
+          this.logger.error('Error definitivo al comunicar con el microservicio de Python', error);
+          throw new Error('Fallo en el motor de inferencia');
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+      }
     }
+
+    throw new Error('Fallo en el motor de inferencia');
   }
 }
