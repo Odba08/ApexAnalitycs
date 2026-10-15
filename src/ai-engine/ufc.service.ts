@@ -51,6 +51,9 @@ export interface CombateUFC {
   has_value: boolean;
   props?: PropsUFC;
   commence_time?: string;
+  is_macho_trap?: boolean;
+  trap_reason?: string;
+  recommended_play?: string;
 }
 
 export interface PrediccionUFCResponse {
@@ -81,6 +84,9 @@ export interface CombateTheOddsLive {
   value_edge?: number;
   has_value: boolean;
   props?: PropsUFC;
+  is_macho_trap?: boolean;
+  trap_reason?: string;
+  recommended_play?: string;
 }
 
 export interface TheOddsLiveResponse {
@@ -129,6 +135,9 @@ export class UfcService {
           has_value: c.has_value,
           props: c.props,
           commence_time: c.commence_time,
+          is_macho_trap: c.is_macho_trap || false,
+          trap_reason: c.trap_reason || '',
+          recommended_play: c.recommended_play || '',
         }));
 
         for (const c of combatesMapped) {

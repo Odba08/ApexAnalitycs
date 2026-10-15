@@ -1554,30 +1554,66 @@ export class ApuestasCronService {
                      `<i>Pronósticos y favoritos para cada combate</i>\n` +
                      `${div}\n\n`;
 
+    const parlayUFC: Array<{ pelea: string; seleccion: string; cuotaEst: number }> = [];
+
     data.analisis_ufc.forEach((c, idx) => {
       const p = c.props;
-      const fav = c.prob_red >= c.prob_blue ? c.red_fighter : c.blue_fighter;
-      const favProb = Math.max(c.prob_red, c.prob_blue);
-      const favOdds = c.prob_red >= c.prob_blue ? c.cuota_red : c.cuota_blue;
-      const valBadge = c.has_value ? ' <i>[+EV]</i>' : '';
       const cat = c.weight_class ? ` (${c.weight_class})` : '';
       const fecha = this.formatFechaCorta(c.commence_time);
+      const jugada = c.recommended_play || p?.jugada_alternativa || 'Más de 1.5 Asaltos';
 
-      let fightBlock = `<b>${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter}</b>${fecha}${cat}\n` +
-                       `• Favorito: <b>${fav}</b> (${Math.round(favProb)}% | Cuota ${favOdds})${valBadge}\n`;
+      let fightBlock = `🥊 <b>${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter}</b>${fecha}${cat}\n`;
+      if (c.is_macho_trap) {
+        fightBlock += `  ⚠️ <b>ALERTA TRAMPA DE FAVORITO:</b> <i>${c.trap_reason}</i>\n`;
+      }
+      fightBlock += `  👉 <b>JUGAR:</b> <b>${jugada}</b>\n` +
+                    `  • Cuotas: ${c.red_fighter} (<b>${c.cuota_red}</b>) vs ${c.blue_fighter} (<b>${c.cuota_blue}</b>) | IA: ${Math.round(c.prob_red)}% vs ${Math.round(c.prob_blue)}%\n`;
       if (p) {
-        fightBlock += `• Vías de Victoria: KO/TKO: ${Math.round(p.metodos.ko_tko)}% | Sub: ${Math.round(p.metodos.sumision)}% | Dec: ${Math.round(p.metodos.decision)}%\n` +
-                      `• Líneas de Asaltos: +1.5 Asaltos (${Math.round(p.asaltos.over_15)}%) | Prop: <b>${p.jugada_alternativa}</b>\n`;
+        fightBlock += `  • Asaltos: +1.5 (${Math.round(p.asaltos.over_15)}%) | Tarjetas: ${Math.round(p.distancia.va_distancia)}% | KO/Sub: ${Math.round(p.distancia.no_distancia)}%\n`;
       }
       fightBlock += `${div}\n`;
 
-      if (currentMsg.length + fightBlock.length > 3400) {
+      if (parlayUFC.length < 4) {
+        if (p && p.asaltos.over_15 >= 70) {
+          parlayUFC.push({ pelea: `${c.red_fighter} vs ${c.blue_fighter}`, seleccion: `Más de 1.5 Asaltos`, cuotaEst: 1.35 });
+        } else if (p && p.distancia.no_distancia >= 65) {
+          parlayUFC.push({ pelea: `${c.red_fighter} vs ${c.blue_fighter}`, seleccion: `Termina antes del límite`, cuotaEst: 1.45 });
+        } else if (!c.is_macho_trap && Math.max(c.prob_red, c.prob_blue) >= 64) {
+          const fName = c.prob_red >= c.prob_blue ? c.red_fighter : c.blue_fighter;
+          const fOdd = c.prob_red >= c.prob_blue ? c.cuota_red : c.cuota_blue;
+          parlayUFC.push({ pelea: `${c.red_fighter} vs ${c.blue_fighter}`, seleccion: `${fName} (Gana)`, cuotaEst: fOdd || 1.45 });
+        }
+      }
+
+      if (currentMsg.length + fightBlock.length > 3300) {
         chunks.push(currentMsg);
         currentMsg = `<b>CARTELERA UFC (Continuación)</b>\n${div}\n\n` + fightBlock;
       } else {
         currentMsg += fightBlock;
       }
     });
+
+    if (parlayUFC.length >= 2) {
+      let cuotaTotal = 1.0;
+      let lineasParlay = '';
+      parlayUFC.forEach((item, i) => {
+        cuotaTotal *= item.cuotaEst;
+        lineasParlay += `  ${i + 1}. <b>${item.pelea}:</b> ${item.seleccion} <i>(~${item.cuotaEst.toFixed(2)})</i>\n`;
+      });
+      const parlayBlock =
+        `🎟️ <b>BOLETO PARLAY COMBINADO UFC (ALTA CERTEZA)</b>\n` +
+        `<i>Props seleccionados sin depender de Moneyline de favoritos en riesgo:</i>\n\n` +
+        `${lineasParlay}\n` +
+        `📈 <b>Cuota Total Estimada:</b> <b>~${cuotaTotal.toFixed(2)}x</b>\n` +
+        `💰 <i>Ideal para bajo importe multiplicando cuota por asaltos y finalizaciones.</i>\n`;
+
+      if (currentMsg.length + parlayBlock.length > 3400) {
+        chunks.push(currentMsg);
+        currentMsg = parlayBlock;
+      } else {
+        currentMsg += parlayBlock;
+      }
+    }
 
     if (currentMsg.trim().length > 0) {
       chunks.push(currentMsg);
@@ -4192,7 +4228,7 @@ export class ApuestasCronService {
         `${div}\n\n`;
 
       const items: string[] = [];
-      const parlayCandidates: Array<{ partido: string; seleccion: string; cuotaEst: number; confianza: number }> = [];
+      const parlayCandidates: Array<{ partido: string; seleccion: string; tipo: string; cuotaEst: number; confianza: number }> = [];
 
       for (const pred of predicciones) {
         if (!pred || !pred.probabilidades_1X2) continue;
@@ -4221,83 +4257,98 @@ export class ApuestasCronService {
         // 1. Partido Trampa / Paridad Extrema (No tocar 1X2 directo)
         if (Math.abs(p1 - p2) <= 5 && maxProb < 43 && Math.abs(xgL - xgV) < 0.25) {
           jugada = `⚠️ EVITAR 1X2 (Paridad extrema / Volado 50-50)`;
-          motivo = `Riesgo alto en ganador directo. Si deseas jugarlo: Over 8.5 Córners o Menos de 3.5 Goles.`;
+          motivo = `Riesgo alto en ganador directo. Jugar: Más de 8.5 Córners o Menos de 3.5 Goles.`;
+          parlayCandidates.push({
+            partido: `${homeTeam} vs ${awayTeam}`,
+            seleccion: `Menos de 3.5 Goles`,
+            tipo: 'GOLES_UNDER',
+            cuotaEst: 1.25,
+            confianza: 88,
+          });
         }
-        // 2. Gran Favorito Local (Victoria Directa)
-        else if (p1 >= 54) {
+        // 2. Favorito Visitante ("Macho Visitante" - Trampa típica de Champions/Ligas)
+        // NUNCA jugar victoria visitante seca a menos de dominio aplastante (>68% y diff xG >= 1.0)
+        else if (p2 >= 45 && (p2 < 68 || (xgV - xgL) < 1.0)) {
+          jugada = `Doble Oportunidad X2 (${awayTeam} o Empate) o Más de 1.5 Goles`;
+          motivo = `Blindaje ante sorpresa: Los favoritos sufren de visita en plazas difíciles; la Doble Oportunidad X2 o línea de goles protege el boleto ante un empate 1-1.`;
+          parlayCandidates.push({
+            partido: `${homeTeam} vs ${awayTeam}`,
+            seleccion: `X2 (${awayTeam} o Empate)`,
+            tipo: 'DOBLE_OPORTUNIDAD',
+            cuotaEst: 1.32,
+            confianza: Math.max(78, pX2),
+          });
+        }
+        // 3. Gran Favorito Local Aplastante (Solo cuando sea verdaderamente dominante: p1 >= 64% y xgL - xgV >= 0.9)
+        else if (p1 >= 64 && (xgL - xgV) >= 0.9) {
           jugada = `Victoria Directa (${homeTeam})`;
-          motivo = `${homeTeam} con claro dominio en volumen ofensivo y xG proyectado (${xgL.toFixed(1)} vs ${xgV.toFixed(1)}).`;
+          motivo = `${homeTeam} con fortaleza de local indiscutible y dominio en volumen ofensivo (${xgL.toFixed(1)} vs ${xgV.toFixed(1)} xG).`;
           parlayCandidates.push({
             partido: `${homeTeam} vs ${awayTeam}`,
             seleccion: `${homeTeam} (Gana)`,
-            cuotaEst: 1.55,
+            tipo: 'VICTORIA_DIRECTA',
+            cuotaEst: 1.48,
             confianza: p1,
           });
         }
-        // 3. Gran Favorito Visitante (Victoria Directa)
-        else if (p2 >= 50) {
-          jugada = `Victoria Directa (${awayTeam})`;
-          motivo = `${awayTeam} superior tácticamente y con mayor jerarquía de plantilla.`;
+        // 4. Favorito Local Moderado pero con rival que contragolpea (xG visitante >= 1.1)
+        else if (p1 >= 45 && xgV >= 1.1) {
+          jugada = `Ambos Equipos Anotan: SÍ (o Doble Oportunidad 1X)`;
+          motivo = `${homeTeam} tiene pegada pero concede transiciones peligrosas atrás (${xgV.toFixed(1)} xGA).`;
           parlayCandidates.push({
             partido: `${homeTeam} vs ${awayTeam}`,
-            seleccion: `${awayTeam} (Gana)`,
-            cuotaEst: 1.65,
-            confianza: p2,
+            seleccion: `Ambos Anotan: SÍ`,
+            tipo: 'AMBOS_ANOTAN',
+            cuotaEst: 1.70,
+            confianza: Math.max(70, pBttsSi),
           });
         }
-        // 4. Doble Oportunidad Local Segura
+        // 5. Asedio Local contra Bloque Bajo (Rival cerrado) -> Córners
+        else if (p1 >= 45 && xgV < 0.8 && xgL >= 1.6) {
+          jugada = `Más de 8.5 Córners Totales (o 1X + Más de 1.5 Goles)`;
+          motivo = `El visitante plantea bloque bajo; el asedio por bandas del local producirá alto flujo de tiros de esquina.`;
+          parlayCandidates.push({
+            partido: `${homeTeam} vs ${awayTeam}`,
+            seleccion: `Más de 8.5 Córners`,
+            tipo: 'CORNERS',
+            cuotaEst: 1.45,
+            confianza: 84,
+          });
+        }
+        // 6. Doble Oportunidad Local Segura
         else if (p1 >= 40 && p1X >= 70) {
           jugada = `Doble Oportunidad 1X (${homeTeam} o Empate)`;
           motivo = `${homeTeam} fuerte en su estadio; alta probabilidad de puntuar.`;
           parlayCandidates.push({
             partido: `${homeTeam} vs ${awayTeam}`,
             seleccion: `1X (${homeTeam} o Empate)`,
+            tipo: 'DOBLE_OPORTUNIDAD',
             cuotaEst: 1.28,
             confianza: p1X,
           });
         }
-        // 5. Doble Oportunidad Visitante Segura
-        else if (p2 >= 38 && pX2 >= 68) {
-          jugada = `Doble Oportunidad X2 (${awayTeam} o Empate)`;
-          motivo = `${awayTeam} competitivo de visitante; cobertura defensiva garantizada.`;
-          parlayCandidates.push({
-            partido: `${homeTeam} vs ${awayTeam}`,
-            seleccion: `X2 (${awayTeam} o Empate)`,
-            cuotaEst: 1.32,
-            confianza: pX2,
-          });
-        }
-        // 6. Partido Over de Goles
-        else if (pOver25 >= 58 || xgTotal >= 2.9) {
-          jugada = `Más de 2.5 Goles (o Más de 1.5 para asegurar)`;
-          motivo = `Tendencia de partido vertical y abierto (${xgTotal.toFixed(1)} goles esperados en simulación).`;
+        // 7. Partido Over de Goles
+        else if (pOver25 >= 56 || xgTotal >= 2.8) {
+          jugada = `Más de 1.5 Goles en el Partido (o Over 2.5)`;
+          motivo = `Dinámica vertical y abierta (${xgTotal.toFixed(1)} goles esperados en la simulación).`;
           parlayCandidates.push({
             partido: `${homeTeam} vs ${awayTeam}`,
             seleccion: `Más de 1.5 Goles`,
-            cuotaEst: 1.30,
-            confianza: Math.min(90, pOver25 + 25),
+            tipo: 'GOLES_OVER',
+            cuotaEst: 1.28,
+            confianza: Math.min(92, pOver25 + 25),
           });
         }
-        // 7. Partido Under de Goles
-        else if (pUnder25 >= 60 || xgTotal <= 2.1) {
+        // 8. Partido Under de Goles
+        else if (pUnder25 >= 58 || xgTotal <= 2.1) {
           jugada = `Menos de 2.5 Goles (o Menos de 3.5 en combinada)`;
-          motivo = `Trámite cerrado con defensas pobladas y pocas transiciones claras.`;
+          motivo = `Planteamientos tácticos cerrados con defensas pobladas y bajo xG conjunto.`;
           parlayCandidates.push({
             partido: `${homeTeam} vs ${awayTeam}`,
             seleccion: `Menos de 3.5 Goles`,
+            tipo: 'GOLES_UNDER',
             cuotaEst: 1.26,
             confianza: Math.min(88, pUnder25 + 22),
-          });
-        }
-        // 8. Ambos Anotan
-        else if (pBttsSi >= 56 && xgL >= 1.2 && xgV >= 1.1) {
-          jugada = `Ambos Equipos Anotan: SÍ`;
-          motivo = `Potencial ofensivo en ambas áreas con fragilidad en portería a cero.`;
-          parlayCandidates.push({
-            partido: `${homeTeam} vs ${awayTeam}`,
-            seleccion: `Ambos Anotan: SÍ`,
-            cuotaEst: 1.70,
-            confianza: pBttsSi,
           });
         }
         // 9. Por defecto: Cobertura o Córners
@@ -4306,10 +4357,11 @@ export class ApuestasCronService {
           jugada = prefLocal
             ? `Doble Oportunidad 1X o Más de 8.5 Córners`
             : `Doble Oportunidad X2 o Más de 8.5 Córners`;
-          motivo = `Encuentro disputado; la doble oportunidad o el mercado de tiros de esquina es la vía más segura.`;
+          motivo = `Partido disputado; la doble oportunidad o el mercado de tiros de esquina es la vía más segura.`;
           parlayCandidates.push({
             partido: `${homeTeam} vs ${awayTeam}`,
             seleccion: prefLocal ? `1X (${homeTeam} o Empate)` : `X2 (${awayTeam} o Empate)`,
+            tipo: 'DOBLE_OPORTUNIDAD',
             cuotaEst: 1.30,
             confianza: Math.max(p1X, pX2),
           });
@@ -4322,11 +4374,23 @@ export class ApuestasCronService {
         items.push(item);
       }
 
-      // Armar Boleto Parlay Combinado (Top 4 a 6 selecciones de máxima confianza)
+      // Armar Boleto Parlay Combinado (Diversificado y Blindado)
+      // MÁXIMO 1 sola Victoria Directa para evitar que tropiezos de "machos" quiebren el ticket
       let pieParlay = '';
       if (parlayCandidates.length >= 3) {
         parlayCandidates.sort((a, b) => b.confianza - a.confianza);
-        const seleccionados = parlayCandidates.slice(0, 5);
+
+        const seleccionados: any[] = [];
+        let countVictoriaDirecta = 0;
+
+        for (const cand of parlayCandidates) {
+          if (seleccionados.length >= 5) break;
+          if (cand.tipo === 'VICTORIA_DIRECTA') {
+            if (countVictoriaDirecta >= 1) continue;
+            countVictoriaDirecta++;
+          }
+          seleccionados.push(cand);
+        }
 
         let cuotaAcum = 1.0;
         let lineasParlay = '';
@@ -4337,11 +4401,11 @@ export class ApuestasCronService {
 
         pieParlay =
           `${div}\n` +
-          `🎟️ <b>BOLETO PARLAY COMBINADO RECOMENDADO</b>\n` +
-          `<i>Selección curada para jugar poco dinero y multiplicar cuota:</i>\n\n` +
+          `🎟️ <b>BOLETO PARLAY BLINDADO (MULTIPARTIDO)</b>\n` +
+          `<i>Estrategia diversificada (Doble Oportunidad + Goles + Córners) para no depender de victorias secas de favoritos:</i>\n\n` +
           `${lineasParlay}\n` +
           `📈 <b>Cuota Total Estimada:</b> <b>~${cuotaAcum.toFixed(2)}x</b>\n` +
-          `💰 <i>Ideal para boletos de bajo importe con alto retorno acumulado.</i>\n`;
+          `🛡️ <i>Protegido ante empates y sorpresas de favoritos a cuota baja.</i>\n`;
       }
 
       const bloques = this.agruparEnBloquesTelegram(encabezado, items, pieParlay);
