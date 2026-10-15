@@ -21,8 +21,8 @@ export class ApuestasCronService {
   private readonly fechaPruebaDesde = '2026-09-18';
   private readonly fechaPruebaHasta = '2026-09-21';
 
-  // IDs Numéricos Oficiales de AllSportsAPI para las 13 competiciones top
-  private readonly targetLeagueKeys = [152, 302, 175, 207, 153, 168, 266, 244, 322, 99, 278, 3, 18];
+  // IDs Numéricos Oficiales de AllSportsAPI para las 15 competiciones top
+  private readonly targetLeagueKeys = [152, 302, 175, 207, 153, 168, 266, 244, 322, 99, 278, 3, 18, 4, 683];
 
   constructor(
     private readonly aiEngine: AiEngineService,
@@ -219,7 +219,13 @@ export class ApuestasCronService {
     if (q.includes('saudi') || q.includes('arabia') || q.includes('pro league')) {
       return { id: 278, nombre: 'Saudi' };
     }
-    if (q.includes('champions') || q.includes('uefa') || q.includes('cl')) {
+    if (q.includes('europa') || q.includes('uel') || q === 'el') {
+      return { id: 4, nombre: 'EuropaLeague' };
+    }
+    if (q.includes('conference') || q.includes('uecl') || q === 'ecl' || q.includes('conf')) {
+      return { id: 683, nombre: 'ConferenceLeague' };
+    }
+    if (q.includes('champions') || q.includes('ucl') || q === 'cl' || q.includes('uefa')) {
       return { id: 3, nombre: 'Champions' };
     }
     if (q.includes('libertadores') || q.includes('conmebol') || q.includes('copa libertadores')) {
@@ -406,7 +412,8 @@ export class ApuestasCronService {
 
     // Palabras clave y equipos para FÚTBOL
     const futbolKeywords = [
-      'futbol', 'fútbol', 'soccer', 'premier', 'laliga', 'la liga', 'champions', 'barcelona', 'barça', 'madrid',
+      'futbol', 'fútbol', 'soccer', 'premier', 'laliga', 'la liga', 'champions', 'europa league', 'europa', 'uel',
+      'conference league', 'conference', 'uecl', 'barcelona', 'barça', 'madrid',
       'arsenal', 'chelsea', 'liverpool', 'city', 'manchester', 'bayern', 'psg', 'inter', 'milan', 'juventus',
       'atletico', 'atlético', 'libertadores', 'bundesliga', 'serie a', 'ligue 1', 'gol', 'goles', 'doble oportunidad',
       'corner', 'corners', 'córners', 'tarjeta', 'tarjetas', 'marcador', 'empate', 'betis', 'sevilla', 'tottenham',
@@ -438,6 +445,12 @@ export class ApuestasCronService {
         } else if (pLower.includes('champions')) {
           leagueId = 3;
           leagueName = 'UEFA CHAMPIONS LEAGUE';
+        } else if (pLower.includes('europa') || pLower.includes('uel')) {
+          leagueId = 4;
+          leagueName = 'UEFA EUROPA LEAGUE';
+        } else if (pLower.includes('conference') || pLower.includes('uecl')) {
+          leagueId = 683;
+          leagueName = 'UEFA CONFERENCE LEAGUE';
         } else if (pLower.includes('laliga') || pLower.includes('la liga') || pLower.includes('barcelona') || pLower.includes('barça') || pLower.includes('madrid') || pLower.includes('atletico')) {
           leagueId = 302;
           leagueName = 'LALIGA (ESPAÑA)';
@@ -761,7 +774,7 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
 
     await ctx.reply(
-      '⚽ <b>FÚTBOL: 13 COMPETICIONES TOP DE ÉLITE</b> ⚽\n\nElige la liga o torneo continental que deseas consultar:',
+      '⚽ <b>FÚTBOL: 15 COMPETICIONES TOP DE ÉLITE</b> ⚽\n\nElige la liga o torneo continental que deseas consultar:',
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
@@ -770,24 +783,26 @@ export class ApuestasCronService {
           ],
           [
             Markup.button.callback('🇪🇺 Champions League', 'liga_champions'),
-            Markup.button.callback('🏆 Copa Libertadores', 'liga_libertadores'),
+            Markup.button.callback('🏆 Europa League', 'liga_europaleague'),
+            Markup.button.callback('🌍 Conference League', 'liga_conferenceleague'),
           ],
           [
+            Markup.button.callback('🏆 Copa Libertadores', 'liga_libertadores'),
             Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier', 'liga_premier'),
             Markup.button.callback('🇪🇸 LaLiga', 'liga_laliga'),
-            Markup.button.callback('🇩🇪 Bundesliga', 'liga_bundesliga'),
           ],
           [
+            Markup.button.callback('🇩🇪 Bundesliga', 'liga_bundesliga'),
             Markup.button.callback('🇮🇹 Serie A', 'liga_seriea'),
             Markup.button.callback('🇫🇷 Ligue 1', 'liga_ligue1'),
-            Markup.button.callback('🇵🇹 Portugal', 'liga_portugal'),
           ],
           [
+            Markup.button.callback('🇵🇹 Portugal', 'liga_portugal'),
             Markup.button.callback('🇳🇱 Eredivisie', 'liga_eredivisie'),
             Markup.button.callback('🇹🇷 Süper Lig', 'liga_superlig'),
-            Markup.button.callback('🇧🇷 Brasileirão', 'liga_brasileirao'),
           ],
           [
+            Markup.button.callback('🇧🇷 Brasileirão', 'liga_brasileirao'),
             Markup.button.callback('🇸🇦 Saudi Pro League', 'liga_saudi'),
             Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship', 'liga_championship'),
           ],
@@ -3106,7 +3121,7 @@ export class ApuestasCronService {
         const name = row?.standing_team || row?.team_name || 'Equipo';
         mensaje += `<b>${row?.standing_place || '-'}. ${name}</b> | PJ: ${row?.standing_P || '0'} | PTS: <b>${row?.standing_PTS || '0'}</b> | DG: ${row?.standing_GD || '0'}\n`;
       });
-    } else if (ligaKey === 'champions' || ligaKey === 'libertadores') {
+    } else if (ligaKey === 'champions' || ligaKey === 'libertadores' || ligaKey === 'europaleague' || ligaKey === 'conferenceleague' || ligaKey === 'uel' || ligaKey === 'uecl') {
       mensaje +=
         `⚔️ <b>FASE DE ELIMINACIÓN DIRECTA (IDA Y VUELTA):</b>\n\n` +
         `En etapas knockout (Octavos, Cuartos, Semifinales), no existe tabla de posiciones tradicional.\n\n` +
@@ -3210,7 +3225,7 @@ export class ApuestasCronService {
     }
 
     await ctx.reply(
-      '⚽ <b>BÚSQUEDA DE CLUB (13 COMPETICIONES TOP)</b> ⚽\n\n' +
+      '⚽ <b>BÚSQUEDA DE CLUB (15 COMPETICIONES TOP)</b> ⚽\n\n' +
         'Selecciona uno de los clubes populares o escribe <code>/equipo Nombre</code> (ej: <code>/equipo Real Madrid</code>, <code>/equipo River Plate</code>, <code>/equipo PSG</code>, <code>/equipo Flamengo</code>):',
       {
         parse_mode: 'HTML',
@@ -3877,7 +3892,7 @@ export class ApuestasCronService {
           `📊 <b>Estadísticas Cuantitativas del Club:</b>\n` +
           `• Rating Elo Actual: <b>${equipoPrincipal.elo.toFixed(1)}</b>\n` +
           `• Estado de Forma: <b>${equipoPrincipal.form5.toFixed(1)} / 100</b>\n\n` +
-          `ℹ️ <i>Sin partido programado en las 13 competiciones para las fechas consultadas.</i>`;
+          `ℹ️ <i>Sin partido programado en las 15 competiciones para las fechas consultadas.</i>`;
       }
 
       await ctx.reply(mensaje, {
@@ -3944,6 +3959,8 @@ export class ApuestasCronService {
 
     const baseEloLiga: Record<string, number> = {
       Champions: 1820,
+      EuropaLeague: 1720,
+      ConferenceLeague: 1640,
       Premier: 1750,
       LaLiga: 1730,
       SerieA: 1710,
@@ -4578,7 +4595,7 @@ export class ApuestasCronService {
       }
 
       this.logger.log(
-        `Procesando ${partidosOficiales.length} partidos oficiales de las 13 competiciones...`,
+        `Procesando ${partidosOficiales.length} partidos oficiales de las 15 competiciones...`,
       );
 
       const partidosParaAnalizar: PartidoInput[] = [];
@@ -4596,6 +4613,8 @@ export class ApuestasCronService {
         if (leagueKey === 99) return 'Brasileirao';
         if (leagueKey === 278) return 'Saudi';
         if (leagueKey === 3) return 'Champions';
+        if (leagueKey === 4) return 'EuropaLeague';
+        if (leagueKey === 683) return 'ConferenceLeague';
         if (leagueKey === 18) return 'Libertadores';
         return null;
       };
@@ -4618,7 +4637,7 @@ export class ApuestasCronService {
       if (partidosParaAnalizar.length === 0) {
         if (ctx)
           await ctx.reply(
-            `ℹ️ Ninguno de los partidos encontrados pertenece a las 13 competiciones soportadas.`,
+            `ℹ️ Ninguno de los partidos encontrados pertenece a las 15 competiciones soportadas.`,
           );
         return;
       }

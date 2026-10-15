@@ -22,6 +22,8 @@ export class SportsApiService {
       case 207: return 'soccer_italy_serie_a'; // Serie A
       case 168: return 'soccer_france_ligue_one'; // Ligue 1
       case 3:   return 'soccer_uefa_champs_league'; // Champions League
+      case 4:   return 'soccer_uefa_europa_league'; // Europa League
+      case 683: return 'soccer_uefa_europa_conference_league'; // Conference League
       case 18:  return 'soccer_conmebol_copa_libertadores'; // Copa Libertadores
       case 99:  return 'soccer_brazil_campeonato'; // Brasileirao
       case 244: return 'soccer_netherlands_eredivisie'; // Eredivisie
