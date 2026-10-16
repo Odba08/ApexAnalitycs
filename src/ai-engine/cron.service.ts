@@ -434,330 +434,274 @@ export class ApuestasCronService {
       lineas.push('⚠️ INSTRUCCIÓN DE ENFOQUE: El usuario pregunta sobre un tema, equipo o combate específico. Centra tu análisis en responder a fondo esa consulta con criterio y profundidad, sin volcar carteleras ajenas ni boletos de otros deportes.\n');
     }
 
+    const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
+      Promise.race([
+        promise.catch(() => fallback),
+        new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+      ]);
+
+    const tareas: Promise<string>[] = [];
+
     // 1. Contexto FÚTBOL
     if (esFutbol || !algunoEspecifico) {
-      try {
-        let leagueId: number | undefined;
-        let leagueName = 'FÚTBOL EUROPEO DE ÉLITE';
-        if (pLower.includes('premier') || pLower.includes('arsenal') || pLower.includes('chelsea') || pLower.includes('liverpool') || pLower.includes('city') || pLower.includes('manchester')) {
-          leagueId = 152;
-          leagueName = 'PREMIER LEAGUE (INGLATERRA)';
-        } else if (pLower.includes('champions')) {
-          leagueId = 3;
-          leagueName = 'UEFA CHAMPIONS LEAGUE';
-        } else if (pLower.includes('europa') || pLower.includes('uel')) {
-          leagueId = 4;
-          leagueName = 'UEFA EUROPA LEAGUE';
-        } else if (pLower.includes('conference') || pLower.includes('uecl')) {
-          leagueId = 683;
-          leagueName = 'UEFA CONFERENCE LEAGUE';
-        } else if (pLower.includes('laliga') || pLower.includes('la liga') || pLower.includes('barcelona') || pLower.includes('barça') || pLower.includes('madrid') || pLower.includes('atletico')) {
-          leagueId = 302;
-          leagueName = 'LALIGA (ESPAÑA)';
-        } else if (pLower.includes('bundesliga') || pLower.includes('bayern') || pLower.includes('dortmund')) {
-          leagueId = 175;
-          leagueName = 'BUNDESLIGA (ALEMANIA)';
-        } else if (pLower.includes('serie a') || pLower.includes('inter') || pLower.includes('milan') || pLower.includes('juventus')) {
-          leagueId = 207;
-          leagueName = 'SERIE A (ITALIA)';
-        } else if (pLower.includes('libertadores')) {
-          leagueId = 18;
-          leagueName = 'COPA LIBERTADORES';
-        }
+      tareas.push((async () => {
+        try {
+          let leagueId: number | undefined;
+          let leagueName = 'FÚTBOL EUROPEO DE ÉLITE';
+          if (pLower.includes('premier') || pLower.includes('arsenal') || pLower.includes('chelsea') || pLower.includes('liverpool') || pLower.includes('city') || pLower.includes('manchester')) {
+            leagueId = 152;
+            leagueName = 'PREMIER LEAGUE (INGLATERRA)';
+          } else if (pLower.includes('champions')) {
+            leagueId = 3;
+            leagueName = 'UEFA CHAMPIONS LEAGUE';
+          } else if (pLower.includes('europa') || pLower.includes('uel')) {
+            leagueId = 4;
+            leagueName = 'UEFA EUROPA LEAGUE';
+          } else if (pLower.includes('conference') || pLower.includes('uecl')) {
+            leagueId = 683;
+            leagueName = 'UEFA CONFERENCE LEAGUE';
+          } else if (pLower.includes('laliga') || pLower.includes('la liga') || pLower.includes('barcelona') || pLower.includes('barça') || pLower.includes('madrid') || pLower.includes('atletico')) {
+            leagueId = 302;
+            leagueName = 'LALIGA (ESPAÑA)';
+          } else if (pLower.includes('bundesliga') || pLower.includes('bayern') || pLower.includes('dortmund')) {
+            leagueId = 175;
+            leagueName = 'BUNDESLIGA (ALEMANIA)';
+          } else if (pLower.includes('serie a') || pLower.includes('inter') || pLower.includes('milan') || pLower.includes('juventus')) {
+            leagueId = 207;
+            leagueName = 'SERIE A (ITALIA)';
+          } else if (pLower.includes('libertadores')) {
+            leagueId = 18;
+            leagueName = 'COPA LIBERTADORES';
+          }
 
-        let partidosPendientes: any[] = [];
-        if (leagueId) {
-          partidosPendientes = await this.obtenerPartidosPendientesLiga(leagueId);
-        } else {
-          const [pPremier, pLaLiga] = await Promise.all([
-            this.obtenerPartidosPendientesLiga(152).catch(() => []),
-            this.obtenerPartidosPendientesLiga(302).catch(() => []),
-          ]);
-          partidosPendientes = [...pPremier, ...pLaLiga];
-        }
+          let partidosPendientes: any[] = [];
+          if (leagueId) {
+            partidosPendientes = await withTimeout(this.obtenerPartidosPendientesLiga(leagueId), 6000, []);
+          } else {
+            const [pPremier, pLaLiga] = await Promise.all([
+              withTimeout(this.obtenerPartidosPendientesLiga(152), 6000, []),
+              withTimeout(this.obtenerPartidosPendientesLiga(302), 6000, []),
+            ]);
+            partidosPendientes = [...pPremier, ...pLaLiga];
+          }
 
-        if (partidosPendientes.length > 0) {
-          lineas.push(`\n--- ${leagueName} ---`);
-          partidosPendientes.slice(0, 8).forEach((p: any, idx: number) => {
-            const h = p?.event_home_team || 'Local';
-            const a = p?.event_away_team || 'Visitante';
-            const fecha = p?.event_date ? ` (${p.event_date})` : '';
-            const ronda = p?.league_round ? ` [${p.league_round}]` : '';
-            lineas.push(`${idx + 1}. ${h} vs ${a}${ronda}${fecha}`);
-          });
-        }
-      } catch (_) {}
+          if (partidosPendientes.length > 0) {
+            const sub: string[] = [`\n--- ${leagueName} ---`];
+            partidosPendientes.slice(0, 8).forEach((p: any, idx: number) => {
+              const h = p?.event_home_team || 'Local';
+              const a = p?.event_away_team || 'Visitante';
+              const fecha = p?.event_date ? ` (${p.event_date})` : '';
+              const ronda = p?.league_round ? ` [${p.league_round}]` : '';
+              sub.push(`${idx + 1}. ${h} vs ${a}${ronda}${fecha}`);
+            });
+            return sub.join('\n');
+          }
+        } catch (_) {}
+        return '';
+      })());
     }
 
     // 2. Contexto FÓRMULA 1
     if (esF1 || !algunoEspecifico) {
-      try {
-        const gpInfo = await this.f1Service.analizarProximoGP();
-        if (gpInfo && gpInfo.analisis_f1 && gpInfo.analisis_f1.length > 0) {
-          const gpName = gpInfo.gp ? gpInfo.gp.nombre : 'Próximo Gran Premio';
-          const circuito = gpInfo.gp ? gpInfo.gp.circuito : 'Circuito';
-          lineas.push(`\n--- FÓRMULA 1 (${gpName.toUpperCase()} - ${circuito}) ---`);
-          const topWin = [...gpInfo.analisis_f1].sort((a: any, b: any) => (b.raw_win || 0) - (a.raw_win || 0)).slice(0, 4);
-          lineas.push('Favoritos victoria: ' + topWin.map((p: any) => `${p.nombre} (${p.escuderia}: ${Math.round(p.raw_win || 0)}%)`).join(', '));
-          const topPole = [...gpInfo.analisis_f1].sort((a: any, b: any) => (b.raw_pole || 0) - (a.raw_pole || 0)).slice(0, 3);
-          lineas.push('Favoritos Pole: ' + topPole.map((p: any) => `${p.nombre} (${Math.round(p.raw_pole || 0)}%)`).join(', '));
-        }
-      } catch (_) {}
+      tareas.push((async () => {
+        try {
+          const gpInfo = await withTimeout(this.f1Service.analizarProximoGP(), 6000, null as any);
+          if (gpInfo && gpInfo.analisis_f1 && gpInfo.analisis_f1.length > 0) {
+            const gpName = gpInfo.gp ? gpInfo.gp.nombre : 'Próximo Gran Premio';
+            const circuito = gpInfo.gp ? gpInfo.gp.circuito : 'Circuito';
+            const sub: string[] = [`\n--- FÓRMULA 1 (${gpName.toUpperCase()} - ${circuito}) ---`];
+            const topWin = [...gpInfo.analisis_f1].sort((a: any, b: any) => (b.raw_win || 0) - (a.raw_win || 0)).slice(0, 4);
+            sub.push('Favoritos victoria: ' + topWin.map((p: any) => `${p.nombre} (${p.escuderia}: ${Math.round(p.raw_win || 0)}%)`).join(', '));
+            const topPole = [...gpInfo.analisis_f1].sort((a: any, b: any) => (b.raw_pole || 0) - (a.raw_pole || 0)).slice(0, 3);
+            sub.push('Favoritos Pole: ' + topPole.map((p: any) => `${p.nombre} (${Math.round(p.raw_pole || 0)}%)`).join(', '));
+            return sub.join('\n');
+          }
+        } catch (_) {}
+        return '';
+      })());
     }
 
     // 3. Contexto MLB
     if (esMLB || !algunoEspecifico) {
-      try {
-        const mlb = await this.usSportsService.analizarDeporte('mlb');
-        if (mlb && mlb.juegos && mlb.juegos.length > 0) {
-          lineas.push('\n--- MLB (BÉISBOL) ---');
-          const maxJuegos = esMLB ? 16 : 5;
-          mlb.juegos.slice(0, maxJuegos).forEach((j, idx) => {
-            const pr = j.props;
-            const isHomeFav = j.prob_home >= j.prob_away;
-            const fav = isHomeFav ? j.home_team : j.away_team;
-            const favProb = Math.max(j.prob_home, j.prob_away);
-            const favOdds = isHomeFav ? j.odds_home : j.odds_away;
-            const diff = Math.abs(j.prob_home - j.prob_away);
-            const esTrampa = diff <= 5 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
-            const infoSerie = j.serie_info ? ` [${j.serie_info}]` : '';
-            const ronda = j.ronda_playoff ? ` (${j.ronda_playoff})` : '';
-            const ayer = j.marcador_ayer ? ` | Antecedente Ayer: ${j.marcador_ayer}` : '';
-            lineas.push(
-              `${idx + 1}. ${j.away_team} @ ${j.home_team}${ronda}${infoSerie}${ayer} | Probabilidad Calibrada: ${fav} (${favProb}% @ ${favOdds})` +
-              (pr ? ` | Runline Seguro: ${pr.runline_away} (${pr.runline_away_prob}%) | Totales: ${pr.total_line} carr (Over ${pr.over_prob}%, Under ${pr.under_prob}%) | Jugada sugerida: ${pr.jugada_clave}` : '') +
-              esTrampa,
-            );
-          });
+      tareas.push((async () => {
+        try {
+          const mlb = await withTimeout(this.usSportsService.analizarDeporte('mlb'), 6000, null as any);
+          if (mlb && mlb.juegos && mlb.juegos.length > 0) {
+            const sub: string[] = ['\n--- MLB (BÉISBOL) ---'];
+            const maxJuegos = esMLB ? 16 : 5;
+            mlb.juegos.slice(0, maxJuegos).forEach((j: any, idx: number) => {
+              const pr = j.props;
+              const isHomeFav = j.prob_home >= j.prob_away;
+              const fav = isHomeFav ? j.home_team : j.away_team;
+              const favProb = Math.max(j.prob_home, j.prob_away);
+              const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+              const diff = Math.abs(j.prob_home - j.prob_away);
+              const esTrampa = diff <= 5 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+              const infoSerie = j.serie_info ? ` [${j.serie_info}]` : '';
+              const ronda = j.ronda_playoff ? ` (${j.ronda_playoff})` : '';
+              const ayer = j.marcador_ayer ? ` | Antecedente Ayer: ${j.marcador_ayer}` : '';
+              sub.push(
+                `${idx + 1}. ${j.away_team} @ ${j.home_team}${ronda}${infoSerie}${ayer} | Probabilidad Calibrada: ${fav} (${favProb}% @ ${favOdds})` +
+                (pr ? ` | Runline Seguro: ${pr.runline_away} (${pr.runline_away_prob}%) | Totales: ${pr.total_line} carr (Over ${pr.over_prob}%, Under ${pr.under_prob}%) | Jugada sugerida: ${pr.jugada_clave}` : '') +
+                esTrampa,
+              );
+            });
 
-          // Inyectar boletos oficiales generados por la app para MLB
-          const packMlb = await this.obtenerPackMLB().catch(() => null);
-          if (packMlb && packMlb.seguro.selecciones.length > 0) {
-            lineas.push('\n[RECOMENDACIÓN OFICIAL ACTUAL DEL MOTOR APEX MLB]:');
-            lineas.push(`• Boleto Seguro Oficial (x2) [Cuota ${packMlb.seguro.cuotaTotal}]: ` + packMlb.seguro.selecciones.map(s => `${s.titulo} [${s.mercado || 'Ganador'}] @ ${s.cuota}`).join(' + '));
-            lineas.push(`• Boleto Multiplicador Oficial [Cuota ${packMlb.multi.cuotaTotal}]: ` + packMlb.multi.selecciones.map(s => `${s.titulo} [${s.mercado || 'Ganador'}] @ ${s.cuota}`).join(' + '));
-            if (packMlb.trampas.length > 0) {
-              lineas.push(`• Trampas/Alertas detectadas por la app: ` + packMlb.trampas.map(t => `${t.duelo} (${t.razon})`).join('; '));
+            if (esMLB) {
+              const packMlb = await withTimeout(this.obtenerPackMLB(), 4000, null);
+              if (packMlb && packMlb.seguro.selecciones.length > 0) {
+                sub.push('\n[RECOMENDACIÓN OFICIAL ACTUAL DEL MOTOR APEX MLB]:');
+                sub.push(`• Boleto Seguro Oficial (x2) [Cuota ${packMlb.seguro.cuotaTotal}]: ` + packMlb.seguro.selecciones.map((s: any) => `${s.titulo} [${s.mercado || 'Ganador'}] @ ${s.cuota}`).join(' + '));
+                sub.push(`• Boleto Multiplicador Oficial [Cuota ${packMlb.multi.cuotaTotal}]: ` + packMlb.multi.selecciones.map((s: any) => `${s.titulo} [${s.mercado || 'Ganador'}] @ ${s.cuota}`).join(' + '));
+              }
             }
+            return sub.join('\n');
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+        return '';
+      })());
     }
 
     // 4. Contexto UFC
     if (esUFC || !algunoEspecifico) {
-      try {
-        const ufc = await this.ufcService.obtenerCarteleraUFC();
-        if (ufc && ufc.analisis_ufc && ufc.analisis_ufc.length > 0) {
-          lineas.push('\n--- UFC (ARTES MARCIALES MIXTAS) ---');
-          const maxPeleas = esUFC ? 16 : 5;
-          ufc.analisis_ufc.slice(0, maxPeleas).forEach((c, idx) => {
-            const isRedFav = c.prob_red >= c.prob_blue;
-            const fav = isRedFav ? c.red_fighter : c.blue_fighter;
-            const favProb = Math.max(c.prob_red, c.prob_blue);
-            const favOdds = isRedFav ? c.cuota_red : c.cuota_blue;
-            const diff = Math.abs(c.prob_red - c.prob_blue);
-            const esTrampa = diff <= 8 ? ' [ALERTA: VOLADO PAREJO 50/50 - NO METER / TRAMPA]' : '';
-            lineas.push(
-              `${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter} | Favorito: ${fav} (${Math.round(favProb)}% @ ${favOdds})` +
-              (c.props ? ` | Prop: ${c.props.jugada_alternativa}` : '') +
-              esTrampa,
-            );
-          });
-
-          // Inyectar boletos oficiales generados por la app para UFC
-          const packUfc = await this.obtenerPackUFC().catch(() => null);
-          if (packUfc && packUfc.seguro.selecciones.length > 0) {
-            lineas.push('\n[RECOMENDACIÓN OFICIAL ACTUAL DEL MOTOR APEX UFC]:');
-            lineas.push(`• Boleto Seguro Oficial (x2) [Cuota ${packUfc.seguro.cuotaTotal}]: ` + packUfc.seguro.selecciones.map(s => `${s.titulo} [${s.mercado || 'Ganador'}] @ ${s.cuota}`).join(' + '));
-            lineas.push(`• Boleto Multiplicador Oficial [Cuota ${packUfc.multi.cuotaTotal}]: ` + packUfc.multi.selecciones.map(s => `${s.titulo} [${s.mercado || 'Ganador'}] @ ${s.cuota}`).join(' + '));
-            if (packUfc.trampas.length > 0) {
-              lineas.push(`• Trampas/Alertas detectadas por la app: ` + packUfc.trampas.map(t => `${t.duelo} (${t.razon})`).join('; '));
-            }
+      tareas.push((async () => {
+        try {
+          const ufc = await withTimeout(this.ufcService.obtenerCarteleraUFC(), 7000, null as any);
+          if (ufc && ufc.analisis_ufc && ufc.analisis_ufc.length > 0) {
+            const sub: string[] = ['\n--- UFC (ARTES MARCIALES MIXTAS) ---'];
+            const maxPeleas = esUFC ? 16 : 5;
+            ufc.analisis_ufc.slice(0, maxPeleas).forEach((c: any, idx: number) => {
+              const isRedFav = c.prob_red >= c.prob_blue;
+              const fav = isRedFav ? c.red_fighter : c.blue_fighter;
+              const favProb = Math.max(c.prob_red, c.prob_blue);
+              const favOdds = isRedFav ? c.cuota_red : c.cuota_blue;
+              const diff = Math.abs(c.prob_red - c.prob_blue);
+              const esTrampa = diff <= 8 ? ' [ALERTA: VOLADO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+              sub.push(
+                `${idx + 1}. ${c.red_fighter} vs ${c.blue_fighter} | Favorito: ${fav} (${Math.round(favProb)}% @ ${favOdds})` +
+                (c.props ? ` | Prop: ${c.props.jugada_alternativa}` : '') +
+                esTrampa,
+              );
+            });
+            return sub.join('\n');
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+        return '';
+      })());
     }
 
     // 5. Contexto NFL
     if (esNFL || !algunoEspecifico) {
-      try {
-        const nfl = await this.usSportsService.analizarDeporte('nfl');
-        if (nfl && nfl.juegos && nfl.juegos.length > 0) {
-          lineas.push('\n--- NFL (FÚTBOL AMERICANO) ---');
-          const maxJuegos = esNFL ? 16 : 5;
-          nfl.juegos.slice(0, maxJuegos).forEach((j, idx) => {
-            const pr = j.props;
-            const isHomeFav = j.prob_home >= j.prob_away;
-            const fav = isHomeFav ? j.home_team : j.away_team;
-            const favProb = Math.max(j.prob_home, j.prob_away);
-            const favOdds = isHomeFav ? j.odds_home : j.odds_away;
-            const diff = Math.abs(j.prob_home - j.prob_away);
-            const esTrampa = diff <= 6 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
-            lineas.push(
-              `${idx + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
-              (pr ? ` | Spread: ${pr.spread_line} pts | Total: ${pr.total_line} pts | Jugada: ${pr.jugada_clave}` : '') +
-              esTrampa,
-            );
-          });
-        }
-      } catch (_) {}
+      tareas.push((async () => {
+        try {
+          const nfl = await withTimeout(this.usSportsService.analizarDeporte('nfl'), 6000, null as any);
+          if (nfl && nfl.juegos && nfl.juegos.length > 0) {
+            const sub: string[] = ['\n--- NFL (FÚTBOL AMERICANO) ---'];
+            const maxJuegos = esNFL ? 16 : 5;
+            nfl.juegos.slice(0, maxJuegos).forEach((j: any, idx: number) => {
+              const pr = j.props;
+              const isHomeFav = j.prob_home >= j.prob_away;
+              const fav = isHomeFav ? j.home_team : j.away_team;
+              const favProb = Math.max(j.prob_home, j.prob_away);
+              const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+              const diff = Math.abs(j.prob_home - j.prob_away);
+              const esTrampa = diff <= 6 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+              sub.push(
+                `${idx + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+                (pr ? ` | Spread: ${pr.spread_line} pts | Total: ${pr.total_line} pts | Jugada: ${pr.jugada_clave}` : '') +
+                esTrampa,
+              );
+            });
+            return sub.join('\n');
+          }
+        } catch (_) {}
+        return '';
+      })());
     }
 
     // 6. Contexto NBA
     if (esNBA || !algunoEspecifico) {
-      try {
-        const nba = await this.usSportsService.analizarDeporte('nba');
-        if (nba && nba.juegos && nba.juegos.length > 0) {
-          lineas.push('\n--- NBA (BÁSQUETBOL) ---');
-          const maxJuegos = esNBA ? 16 : 5;
-          nba.juegos.slice(0, maxJuegos).forEach((j, idx) => {
-            const pr = j.props;
-            const isHomeFav = j.prob_home >= j.prob_away;
-            const fav = isHomeFav ? j.home_team : j.away_team;
-            const favProb = Math.max(j.prob_home, j.prob_away);
-            const favOdds = isHomeFav ? j.odds_home : j.odds_away;
-            const diff = Math.abs(j.prob_home - j.prob_away);
-            const esTrampa = diff <= 6 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
-            lineas.push(
-              `${idx + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
-              (pr ? ` | Spread: ${pr.spread_line} pts | Total: ${pr.total_line} pts | Prop: ${pr.jugada_clave}` : '') +
-              esTrampa,
-            );
-          });
-        }
-      } catch (_) {}
+      tareas.push((async () => {
+        try {
+          const nba = await withTimeout(this.usSportsService.analizarDeporte('nba'), 6000, null as any);
+          if (nba && nba.juegos && nba.juegos.length > 0) {
+            const sub: string[] = ['\n--- NBA (BÁSQUETBOL) ---'];
+            const maxJuegos = esNBA ? 16 : 5;
+            nba.juegos.slice(0, maxJuegos).forEach((j: any, idx: number) => {
+              const pr = j.props;
+              const isHomeFav = j.prob_home >= j.prob_away;
+              const fav = isHomeFav ? j.home_team : j.away_team;
+              const favProb = Math.max(j.prob_home, j.prob_away);
+              const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+              const diff = Math.abs(j.prob_home - j.prob_away);
+              const esTrampa = diff <= 6 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+              sub.push(
+                `${idx + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+                (pr ? ` | Spread: ${pr.spread_line} pts | Total: ${pr.total_line} pts | Prop: ${pr.jugada_clave}` : '') +
+                esTrampa,
+              );
+            });
+            return sub.join('\n');
+          }
+        } catch (_) {}
+        return '';
+      })());
+    }
+
+    const resultados = await Promise.all(tareas);
+    for (const r of resultados) {
+      if (r) lineas.push(r);
     }
 
     return lineas.join('\n');
   }
 
-  @On('text')
-  async mensajeTextoGenerico(@Ctx() ctx: Context) {
-    const text = (ctx.message as any)?.text || '';
-    if (text.startsWith('/')) return; // Ignorar si es un comando
+  /**
+   * Envía de forma segura respuestas de Gemini a Telegram paginando si superan 3600 caracteres
+   * y haciendo fallback a texto plano si alguna etiqueta HTML falla.
+   */
+  private async enviarRespuestaGemini(
+    ctx: Context,
+    titulo: string,
+    respuesta: string,
+    btns: any[],
+  ) {
+    const limpio = this.geminiService.sanitizarParaTelegram(respuesta);
+    const fullHtml = `🧠 <b>${titulo}</b>\n\n${limpio}`;
 
-    const textClean = text.trim().toLowerCase();
-    if (['hola', 'buenas', 'buenos dias', 'buenas tardes', 'menu', 'inicio'].includes(textClean)) {
-      return this.comandoMenuPrincipal(ctx);
+    const chunks: string[] = [];
+    if (fullHtml.length <= 3700) {
+      chunks.push(fullHtml);
+    } else {
+      const lineas = fullHtml.split('\n');
+      let actual = '';
+      for (const l of lineas) {
+        if (actual.length + l.length + 1 > 3600) {
+          chunks.push(actual);
+          actual = l;
+        } else {
+          actual = actual ? `${actual}\n${l}` : l;
+        }
+      }
+      if (actual.trim().length > 0) chunks.push(actual);
     }
 
-    await ctx.reply('🧠 <b>Apex Gemini AI analizando tu consulta deportiva...</b>', { parse_mode: 'HTML' });
-
-    try {
-      const contexto = await this.obtenerContextoResumidoDeportes(text);
-      const respuesta = await this.geminiService.responderPreguntaUsuario(text, contexto);
-
-      const pLower = text.toLowerCase();
-      const esFutbol = ['futbol', 'fútbol', 'soccer', 'premier', 'laliga', 'la liga', 'champions', 'barcelona', 'barça', 'madrid', 'arsenal', 'chelsea', 'liverpool', 'city', 'manchester', 'bayern', 'psg', 'inter', 'milan', 'juventus', 'atletico', 'libertadores', 'bundesliga', 'serie a', 'ligue 1', 'gol', 'goles', 'doble oportunidad'].some((k) => pLower.includes(k));
-      const esF1 = ['f1', 'formula 1', 'fórmula 1', 'gp', 'gran premio', 'verstappen', 'hamilton', 'norris', 'leclerc', 'russell', 'pole', 'podio'].some((k) => pLower.includes(k));
-      const esUFC = ['ufc', 'mma', 'pelea', 'combate', 'peleador', 'mcgee', 'mcghee', 'vettori', 'talbott'].some((k) => pLower.includes(k));
-      const esMLB = ['mlb', 'beisbol', 'béisbol', 'carrera', 'runline', 'inning', 'astros', 'yankees', 'dodgers'].some((k) => pLower.includes(k));
-      const esNFL = ['nfl', 'americano', 'touchdown', 'chiefs', 'eagles', '49ers'].some((k) => pLower.includes(k));
-      const esNBA = ['nba', 'basquet', 'básquet', 'baloncesto', 'lakers', 'celtics', 'warriors'].some((k) => pLower.includes(k));
-
-      const btns: any[] = [];
-      if (esFutbol) {
-        btns.push([
-          Markup.button.callback('🇪🇺 Champions League', 'liga_champions'),
-          Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League', 'liga_premier'),
-        ]);
-        btns.push([
-          Markup.button.callback('🇪🇸 LaLiga', 'liga_laliga'),
-          Markup.button.callback('⚽ Todas las Ligas', 'menu_ligas'),
-        ]);
-      } else if (esF1) {
-        btns.push([
-          Markup.button.callback('⏱️ Pronósticos Pole & GP', 'opt_f1_pronostico'),
-          Markup.button.callback('🏆 Mundial Pilotos', 'opt_f1_pilotos'),
-        ]);
-        btns.push([
-          Markup.button.callback('🏎️ Mundial Constructores', 'opt_f1_constructores'),
-          Markup.button.callback('🏎️ Menú F1', 'menu_f1'),
-        ]);
-      } else if (esMLB) {
-        btns.push([
-          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'),
-          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi'),
-        ]);
-        btns.push([
-          Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'),
-          Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_mlb_estrategia'),
-        ]);
-        btns.push([
-          Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera'),
-          Markup.button.callback('🔙 Menú MLB', 'menu_mlb'),
-        ]);
-      } else if (esUFC) {
-        btns.push([
-          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'),
-          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi'),
-        ]);
-        btns.push([
-          Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'),
-          Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_ufc_estrategia'),
-        ]);
-        btns.push([
-          Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'),
-          Markup.button.callback('🔙 Menú UFC', 'menu_ufc'),
-        ]);
-      } else if (esNFL) {
-        btns.push([
-          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'),
-          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi'),
-        ]);
-        btns.push([
-          Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'),
-          Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nfl_estrategia'),
-        ]);
-        btns.push([
-          Markup.button.callback('📋 Cartelera Completa', 'opt_nfl_jornada'),
-          Markup.button.callback('🔙 Menú NFL', 'menu_nfl'),
-        ]);
-      } else if (esNBA) {
-        btns.push([
-          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'),
-          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi'),
-        ]);
-        btns.push([
-          Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'),
-          Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nba_estrategia'),
-        ]);
-        btns.push([
-          Markup.button.callback('📋 Cartelera Completa', 'opt_nba_partidos'),
-          Markup.button.callback('🔙 Menú NBA', 'menu_nba'),
-        ]);
-      } else {
-        btns.push([
-          Markup.button.callback('⚽ Dictamen Fútbol', 'opt_gemini_futbol'),
-          Markup.button.callback('🏎️ Dictamen F1', 'opt_gemini_f1'),
-        ]);
-        btns.push([
-          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'),
-          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi'),
-        ]);
-        btns.push([
-          Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'),
-          Markup.button.callback('🎯 Boletos MLB', 'opt_mlb_estrategia'),
-        ]);
-        btns.push([
-          Markup.button.callback('🥊 Boletos UFC', 'opt_ufc_estrategia'),
-          Markup.button.callback('🏈 Boletos NFL', 'opt_nfl_estrategia'),
-        ]);
-      }
-      btns.push([Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')]);
-
-      const respuestaLimpia = this.geminiService.sanitizarParaTelegram(respuesta);
-      await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI</b>\n\n${respuestaLimpia}`, {
-        parse_mode: 'HTML',
-        ...Markup.inlineKeyboard(btns),
-      }).catch(async () => {
-        await ctx.reply(`🧠 DICTAMEN GEMINI AI:\n\n${respuesta.replace(/[*#]/g, '')}`, {
-          ...Markup.inlineKeyboard(btns),
+    for (let i = 0; i < chunks.length; i++) {
+      const isLast = i === chunks.length - 1;
+      const extra: any = isLast && btns.length > 0 ? Markup.inlineKeyboard(btns) : {};
+      await ctx
+        .reply(chunks[i], {
+          parse_mode: 'HTML',
+          ...extra,
+        })
+        .catch(async () => {
+          const plain = chunks[i]
+            .replace(/<\/?[bi]>/gi, '')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&amp;/g, '&');
+          await ctx.reply(plain.slice(0, 4000), extra);
         });
-      });
-    } catch (e: any) {
-      await ctx.reply(`⚠️ No se pudo procesar la consulta con Gemini en este momento.`);
     }
   }
 
@@ -1409,23 +1353,12 @@ export class ApuestasCronService {
     const dictamen = pack && pack.seguro.selecciones.length > 0
       ? await this.geminiService.auditarRecomendacionesApp('UFC', pack, carteleraTexto)
       : await this.geminiService.analizarCartelera('UFC', carteleraTexto);
-    const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>EL OJO DE GEMINI AI | UFC</b>\n\n${dictamenLimpio}`, {
-      parse_mode: 'HTML',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi')],
-        [Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'), Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_ufc_estrategia')],
-        [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'), Markup.button.callback('🔙 Menú UFC', 'menu_ufc')],
-      ]),
-    }).catch(async () => {
-      await ctx.reply(`🧠 DICTAMEN GEMINI AI | UFC:\n\n${dictamen.replace(/[*#]/g, '')}`, {
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi')],
-          [Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'), Markup.button.callback('🔙 Menú UFC', 'menu_ufc')],
-        ]),
-      });
-    });
+    await this.enviarRespuestaGemini(ctx, 'EL OJO DE GEMINI AI | UFC', dictamen, [
+      [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi')],
+      [Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'), Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_ufc_estrategia')],
+      [Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'), Markup.button.callback('🔙 Menú UFC', 'menu_ufc')],
+    ]);
   }
 
   @Action('opt_ufc_the_odds')
@@ -1906,23 +1839,12 @@ export class ApuestasCronService {
     const dictamen = pack && pack.seguro.selecciones.length > 0
       ? await this.geminiService.auditarRecomendacionesApp('NFL', pack, carteleraTexto)
       : await this.geminiService.analizarCartelera('NFL', carteleraTexto);
-    const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>EL OJO DE GEMINI AI | NFL</b>\n\n${dictamenLimpio}`, {
-      parse_mode: 'HTML',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi')],
-        [Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'), Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nfl_estrategia')],
-        [Markup.button.callback('📋 Cartelera Completa', 'opt_nfl_jornada'), Markup.button.callback('🔙 Menú NFL', 'menu_nfl')],
-      ]),
-    }).catch(async () => {
-      await ctx.reply(`🧠 DICTAMEN GEMINI AI | NFL:\n\n${dictamen.replace(/[*#]/g, '')}`, {
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi')],
-          [Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'), Markup.button.callback('🔙 Menú NFL', 'menu_nfl')],
-        ]),
-      });
-    });
+    await this.enviarRespuestaGemini(ctx, 'EL OJO DE GEMINI AI | NFL', dictamen, [
+      [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi')],
+      [Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'), Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nfl_estrategia')],
+      [Markup.button.callback('📋 Cartelera Completa', 'opt_nfl_jornada'), Markup.button.callback('🔙 Menú NFL', 'menu_nfl')],
+    ]);
   }
 
   @Action('opt_nfl_valor')
@@ -2394,23 +2316,12 @@ export class ApuestasCronService {
     const dictamen = pack && pack.seguro.selecciones.length > 0
       ? await this.geminiService.auditarRecomendacionesApp('MLB', pack, carteleraTexto)
       : await this.geminiService.analizarCartelera('MLB', carteleraTexto);
-    const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>EL OJO DE GEMINI AI | MLB</b>\n\n${dictamenLimpio}`, {
-      parse_mode: 'HTML',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi')],
-        [Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'), Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_mlb_estrategia')],
-        [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera'), Markup.button.callback('🔙 Menú MLB', 'menu_mlb')],
-      ]),
-    }).catch(async () => {
-      await ctx.reply(`🧠 DICTAMEN GEMINI AI | MLB:\n\n${dictamen.replace(/[*#]/g, '')}`, {
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi')],
-          [Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'), Markup.button.callback('🔙 Menú MLB', 'menu_mlb')],
-        ]),
-      });
-    });
+    await this.enviarRespuestaGemini(ctx, 'EL OJO DE GEMINI AI | MLB', dictamen, [
+      [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi')],
+      [Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'), Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_mlb_estrategia')],
+      [Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera'), Markup.button.callback('🔙 Menú MLB', 'menu_mlb')],
+    ]);
   }
 
   @Action('opt_mlb_valor')
@@ -2723,23 +2634,12 @@ export class ApuestasCronService {
     const dictamen = pack && pack.seguro.selecciones.length > 0
       ? await this.geminiService.auditarRecomendacionesApp('NBA', pack, carteleraTexto)
       : await this.geminiService.analizarCartelera('NBA', carteleraTexto);
-    const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>EL OJO DE GEMINI AI | NBA</b>\n\n${dictamenLimpio}`, {
-      parse_mode: 'HTML',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi')],
-        [Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'), Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nba_estrategia')],
-        [Markup.button.callback('📋 Cartelera Completa', 'opt_nba_partidos'), Markup.button.callback('🔙 Menú NBA', 'menu_nba')],
-      ]),
-    }).catch(async () => {
-      await ctx.reply(`🧠 DICTAMEN GEMINI AI | NBA:\n\n${dictamen.replace(/[*#]/g, '')}`, {
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi')],
-          [Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'), Markup.button.callback('🔙 Menú NBA', 'menu_nba')],
-        ]),
-      });
-    });
+    await this.enviarRespuestaGemini(ctx, 'EL OJO DE GEMINI AI | NBA', dictamen, [
+      [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi')],
+      [Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'), Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nba_estrategia')],
+      [Markup.button.callback('📋 Cartelera Completa', 'opt_nba_partidos'), Markup.button.callback('🔙 Menú NBA', 'menu_nba')],
+    ]);
   }
 
   @Action('opt_gemini_futbol')
@@ -2775,23 +2675,12 @@ export class ApuestasCronService {
 
     const carteleraTexto = lineasFutbol.length > 0 ? lineasFutbol.join('\n') : 'Jornada europea de fin de semana (Champions League, Premier League y LaLiga)';
     const dictamen = await this.geminiService.analizarCartelera('Fútbol Élite (Champions, Premier, LaLiga)', carteleraTexto);
-    const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>EL OJO DE GEMINI AI | FÚTBOL ÉLITE</b>\n\n${dictamenLimpio}`, {
-      parse_mode: 'HTML',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('🇪🇺 Champions League', 'liga_champions'), Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League', 'liga_premier')],
-        [Markup.button.callback('🇪🇸 LaLiga', 'liga_laliga'), Markup.button.callback('⚽ Todas las Ligas', 'menu_ligas')],
-        [Markup.button.callback('🔙 Volver al Menú Principal', 'menu_start_redirect')],
-      ]),
-    }).catch(async () => {
-      await ctx.reply(`🧠 DICTAMEN GEMINI AI | FÚTBOL ÉLITE:\n\n${dictamen.replace(/[*#]/g, '')}`, {
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('🇪🇺 Champions League', 'liga_champions'), Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League', 'liga_premier')],
-          [Markup.button.callback('⚽ Menú Fútbol', 'menu_ligas')],
-        ]),
-      });
-    });
+    await this.enviarRespuestaGemini(ctx, 'EL OJO DE GEMINI AI | FÚTBOL ÉLITE', dictamen, [
+      [Markup.button.callback('🇪🇺 Champions League', 'liga_champions'), Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League', 'liga_premier')],
+      [Markup.button.callback('🇪🇸 LaLiga', 'liga_laliga'), Markup.button.callback('⚽ Todas las Ligas', 'menu_ligas')],
+      [Markup.button.callback('🔙 Volver al Menú Principal', 'menu_start_redirect')],
+    ]);
   }
 
   @Action('opt_gemini_f1')
@@ -2827,21 +2716,11 @@ export class ApuestasCronService {
     });
 
     const dictamen = await this.geminiService.analizarCartelera(`Fórmula 1 (${gpName})`, lineasF1.join('\n'));
-    const dictamenLimpio = this.geminiService.sanitizarParaTelegram(dictamen);
 
-    await ctx.reply(`🧠 <b>DICTAMEN GEMINI AI | FÓRMULA 1</b>\n\n${dictamenLimpio}`, {
-      parse_mode: 'HTML',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('⏱️ Pronósticos Pole & GP', 'opt_f1_pronostico'), Markup.button.callback('🏆 Mundial Pilotos', 'opt_f1_pilotos')],
-        [Markup.button.callback('🏎️ Mundial Constructores', 'opt_f1_constructores'), Markup.button.callback('🔙 Menú F1', 'menu_f1')],
-      ]),
-    }).catch(async () => {
-      await ctx.reply(`🧠 DICTAMEN GEMINI AI | FÓRMULA 1:\n\n${dictamen.replace(/[*#]/g, '')}`, {
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('⏱️ Pronósticos Pole & GP', 'opt_f1_pronostico'), Markup.button.callback('🔙 Menú F1', 'menu_f1')],
-        ]),
-      });
-    });
+    await this.enviarRespuestaGemini(ctx, 'DICTAMEN GEMINI AI | FÓRMULA 1', dictamen, [
+      [Markup.button.callback('⏱️ Pronósticos Pole & GP', 'opt_f1_pronostico'), Markup.button.callback('🏆 Mundial Pilotos', 'opt_f1_pilotos')],
+      [Markup.button.callback('🏎️ Mundial Constructores', 'opt_f1_constructores'), Markup.button.callback('🔙 Menú F1', 'menu_f1')],
+    ]);
   }
 
   @Action('opt_nba_valor')
@@ -4839,6 +4718,129 @@ export class ApuestasCronService {
     } catch (error) {
       this.logger.error('Error en análisis de jornada acotado', error);
       if (ctx) await ctx.reply('❌ Error al procesar la jornada.');
+    }
+  }
+
+  @Command('gemini')
+  async comandoGemini(@Ctx() ctx: Context) {
+    return this.accionGeminiInfo(ctx);
+  }
+
+  @On('text')
+  async mensajeTextoGenerico(@Ctx() ctx: Context) {
+    const text = (ctx.message as any)?.text || '';
+    if (!text || text.startsWith('/')) return;
+
+    const textClean = text.trim().toLowerCase();
+    if (['hola', 'buenas', 'buenos dias', 'buenos días', 'buenas tardes', 'buenas noches', 'menu', 'menú', 'inicio', 'start'].includes(textClean)) {
+      return this.comandoMenuPrincipal(ctx);
+    }
+
+    await ctx.reply('🧠 <b>Apex Gemini AI analizando tu consulta deportiva...</b>', { parse_mode: 'HTML' });
+
+    try {
+      const contexto = await this.obtenerContextoResumidoDeportes(text);
+      const respuesta = await this.geminiService.responderPreguntaUsuario(text, contexto);
+
+      const pLower = text.toLowerCase();
+      const esFutbol = ['futbol', 'fútbol', 'soccer', 'premier', 'laliga', 'la liga', 'champions', 'europa', 'conference', 'barcelona', 'barça', 'madrid', 'arsenal', 'chelsea', 'liverpool', 'city', 'manchester', 'bayern', 'psg', 'inter', 'milan', 'juventus', 'atletico', 'libertadores', 'bundesliga', 'serie a', 'ligue 1', 'gol', 'goles', 'doble oportunidad'].some((k) => pLower.includes(k));
+      const esF1 = ['f1', 'formula 1', 'fórmula 1', 'gp', 'gran premio', 'verstappen', 'hamilton', 'norris', 'leclerc', 'russell', 'pole', 'podio'].some((k) => pLower.includes(k));
+      const esUFC = ['ufc', 'mma', 'pelea', 'combate', 'peleador', 'mcgee', 'mcghee', 'vettori', 'talbott'].some((k) => pLower.includes(k));
+      const esMLB = ['mlb', 'beisbol', 'béisbol', 'carrera', 'runline', 'inning', 'astros', 'yankees', 'dodgers'].some((k) => pLower.includes(k));
+      const esNFL = ['nfl', 'americano', 'touchdown', 'chiefs', 'eagles', '49ers'].some((k) => pLower.includes(k));
+      const esNBA = ['nba', 'basquet', 'básquet', 'baloncesto', 'lakers', 'celtics', 'warriors'].some((k) => pLower.includes(k));
+
+      const btns: any[] = [];
+      if (esFutbol) {
+        btns.push([
+          Markup.button.callback('🇪🇺 Champions League', 'liga_champions'),
+          Markup.button.callback('🟠 Europa League', 'liga_europaleague'),
+        ]);
+        btns.push([
+          Markup.button.callback('🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League', 'liga_premier'),
+          Markup.button.callback('⚽ Todas las Ligas', 'menu_ligas'),
+        ]);
+      } else if (esF1) {
+        btns.push([
+          Markup.button.callback('⏱️ Pronósticos Pole & GP', 'opt_f1_pronostico'),
+          Markup.button.callback('🏆 Mundial Pilotos', 'opt_f1_pilotos'),
+        ]);
+        btns.push([
+          Markup.button.callback('🏎️ Mundial Constructores', 'opt_f1_constructores'),
+          Markup.button.callback('🏎️ Menú F1', 'menu_f1'),
+        ]);
+      } else if (esMLB) {
+        btns.push([
+          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'),
+          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi'),
+        ]);
+        btns.push([
+          Markup.button.callback('💣 Boleto Bomba', 'opt_mlb_bomba'),
+          Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_mlb_estrategia'),
+        ]);
+        btns.push([
+          Markup.button.callback('📋 Cartelera Completa', 'opt_mlb_cartelera'),
+          Markup.button.callback('🔙 Menú MLB', 'menu_mlb'),
+        ]);
+      } else if (esUFC) {
+        btns.push([
+          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'),
+          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi'),
+        ]);
+        btns.push([
+          Markup.button.callback('💣 Boleto Bomba', 'opt_ufc_bomba'),
+          Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_ufc_estrategia'),
+        ]);
+        btns.push([
+          Markup.button.callback('📋 Cartelera Completa', 'opt_ufc_cartelera'),
+          Markup.button.callback('🔙 Menú UFC', 'menu_ufc'),
+        ]);
+      } else if (esNFL) {
+        btns.push([
+          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'),
+          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi'),
+        ]);
+        btns.push([
+          Markup.button.callback('💣 Boleto Bomba', 'opt_nfl_bomba'),
+          Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nfl_estrategia'),
+        ]);
+        btns.push([
+          Markup.button.callback('📋 Cartelera Completa', 'opt_nfl_jornada'),
+          Markup.button.callback('🔙 Menú NFL', 'menu_nfl'),
+        ]);
+      } else if (esNBA) {
+        btns.push([
+          Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'),
+          Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi'),
+        ]);
+        btns.push([
+          Markup.button.callback('💣 Boleto Bomba', 'opt_nba_bomba'),
+          Markup.button.callback('🎯 Los 3 Boletos Juntos', 'opt_nba_estrategia'),
+        ]);
+        btns.push([
+          Markup.button.callback('📋 Cartelera Completa', 'opt_nba_partidos'),
+          Markup.button.callback('🔙 Menú NBA', 'menu_nba'),
+        ]);
+      } else {
+        btns.push([
+          Markup.button.callback('⚽ Dictamen Fútbol', 'opt_gemini_futbol'),
+          Markup.button.callback('🏎️ Dictamen F1', 'opt_gemini_f1'),
+        ]);
+        btns.push([
+          Markup.button.callback('⚾ Dictamen MLB', 'opt_gemini_mlb'),
+          Markup.button.callback('🥊 Dictamen UFC', 'opt_gemini_ufc'),
+        ]);
+        btns.push([
+          Markup.button.callback('🏈 Dictamen NFL', 'opt_gemini_nfl'),
+          Markup.button.callback('🏀 Dictamen NBA', 'opt_gemini_nba'),
+        ]);
+      }
+      btns.push([Markup.button.callback('🔙 Menú Principal', 'menu_start_redirect')]);
+
+      await this.enviarRespuestaGemini(ctx, 'DICTAMEN GEMINI AI', respuesta, btns);
+    } catch (e: any) {
+      this.logger.error('Error en mensajeTextoGenerico Gemini', e);
+      await ctx.reply(`⚠️ No se pudo procesar la consulta con Gemini en este momento. Intenta de nuevo en unos segundos.`);
     }
   }
 }

@@ -100,7 +100,7 @@ export interface TheOddsLiveResponse {
 @Injectable()
 export class UfcService {
   private readonly logger = new Logger(UfcService.name);
-  private readonly pythonUrl = process.env.PYTHON_ML_URL || 'http://localhost:8000';
+  private readonly pythonUrl = process.env.PYTHON_ML_URL || 'https://pythonmachinelearning.onrender.com';
   private readonly theOddsApiKey = process.env.THE_ODDS_API_KEY || '9c4667b47ad5ae80f5de259e91f8ff0f';
 
   private cachedLiveOdds: TheOddsLiveResponse | null = null;
