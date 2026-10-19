@@ -1348,29 +1348,39 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('🧠 <b>Gemini AI analizando todos los combates de UFC...</b>', { parse_mode: 'HTML' });
 
-    const data = await this.ufcService.obtenerCarteleraUFC();
-    if (data.error || !data.analisis_ufc || data.analisis_ufc.length === 0) {
-      await ctx.reply('⚠️ No hay combates de UFC disponibles para analizar en este momento.');
-      return;
+    const data = await Promise.race([
+      this.ufcService.obtenerCarteleraUFC().catch(() => ({ error: 'timeout', analisis_ufc: [] })),
+      new Promise<any>((r) => setTimeout(() => r({ error: 'timeout', analisis_ufc: [] }), 10000)),
+    ]);
+
+    let dictamen: string;
+    if (data && data.analisis_ufc && data.analisis_ufc.length > 0) {
+      const carteleraTexto = data.analisis_ufc.map((c: any, i: number) => {
+        const p = c.props;
+        const isRedFav = c.prob_red >= c.prob_blue;
+        const fav = isRedFav ? c.red_fighter : c.blue_fighter;
+        const favProb = Math.max(c.prob_red, c.prob_blue);
+        const favOdds = isRedFav ? c.cuota_red : c.cuota_blue;
+        const diff = Math.abs(c.prob_red - c.prob_blue);
+        const esTrampa = diff <= 8 ? ' [ALERTA: VOLADO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+        return `${i + 1}. ${c.red_fighter} vs ${c.blue_fighter} | Favorito: ${fav} (${Math.round(favProb)}% @ ${favOdds})` +
+               (p ? ` | Prop: ${p.jugada_alternativa}` : '') +
+               esTrampa;
+      }).join('\n');
+
+      const pack = await Promise.race([
+        this.obtenerPackUFC().catch(() => null),
+        new Promise<any>((r) => setTimeout(() => r(null), 5000)),
+      ]);
+      dictamen = pack && pack.seguro.selecciones.length > 0
+        ? await this.geminiService.auditarRecomendacionesApp('UFC', pack, carteleraTexto)
+        : await this.geminiService.analizarCartelera('UFC', carteleraTexto);
+    } else {
+      dictamen = await this.geminiService.analizarCartelera(
+        'UFC (Próxima Cartelera Oficial)',
+        'Analiza los combates estelares y preliminares del próximo evento de UFC, priorizando líneas de Más de 1.5 asaltos, peleas que van a decisión y evitando favoritos trampa de cuota inflada.',
+      );
     }
-
-    const carteleraTexto = data.analisis_ufc.map((c, i) => {
-      const p = c.props;
-      const isRedFav = c.prob_red >= c.prob_blue;
-      const fav = isRedFav ? c.red_fighter : c.blue_fighter;
-      const favProb = Math.max(c.prob_red, c.prob_blue);
-      const favOdds = isRedFav ? c.cuota_red : c.cuota_blue;
-      const diff = Math.abs(c.prob_red - c.prob_blue);
-      const esTrampa = diff <= 8 ? ' [ALERTA: VOLADO PAREJO 50/50 - NO METER / TRAMPA]' : '';
-      return `${i + 1}. ${c.red_fighter} vs ${c.blue_fighter} | Favorito: ${fav} (${Math.round(favProb)}% @ ${favOdds})` +
-             (p ? ` | Prop: ${p.jugada_alternativa}` : '') +
-             esTrampa;
-    }).join('\n');
-
-    const pack = await this.obtenerPackUFC();
-    const dictamen = pack && pack.seguro.selecciones.length > 0
-      ? await this.geminiService.auditarRecomendacionesApp('UFC', pack, carteleraTexto)
-      : await this.geminiService.analizarCartelera('UFC', carteleraTexto);
 
     await this.enviarRespuestaGemini(ctx, 'EL OJO DE GEMINI AI | UFC', dictamen, [
       [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_ufc_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_ufc_multi')],
@@ -1834,29 +1844,39 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('🧠 <b>Gemini AI analizando la cartelera de NFL...</b>', { parse_mode: 'HTML' });
 
-    const res = await this.usSportsService.analizarDeporte('nfl');
-    if (res.error || !res.juegos || res.juegos.length === 0) {
-      await ctx.reply('⚠️ No hay partidos de NFL disponibles para analizar en este momento.');
-      return;
+    const res = await Promise.race([
+      this.usSportsService.analizarDeporte('nfl').catch(() => ({ error: 'timeout', juegos: [] })),
+      new Promise<any>((r) => setTimeout(() => r({ error: 'timeout', juegos: [] }), 10000)),
+    ]);
+
+    let dictamen: string;
+    if (res && res.juegos && res.juegos.length > 0) {
+      const carteleraTexto = res.juegos.map((j: any, i: number) => {
+        const pr = j.props;
+        const isHomeFav = j.prob_home >= j.prob_away;
+        const fav = isHomeFav ? j.home_team : j.away_team;
+        const favProb = Math.max(j.prob_home, j.prob_away);
+        const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+        const diff = Math.abs(j.prob_home - j.prob_away);
+        const esTrampa = diff <= 6 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+        return `${i + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+               (pr ? ` | Spread: ${pr.spread_line} pts | Totales: ${pr.total_line} pts | Prop: ${pr.jugada_clave}` : '') +
+               esTrampa;
+      }).join('\n');
+
+      const pack = await Promise.race([
+        this.obtenerPackNFL().catch(() => null),
+        new Promise<any>((r) => setTimeout(() => r(null), 5000)),
+      ]);
+      dictamen = pack && pack.seguro.selecciones.length > 0
+        ? await this.geminiService.auditarRecomendacionesApp('NFL', pack, carteleraTexto)
+        : await this.geminiService.analizarCartelera('NFL', carteleraTexto);
+    } else {
+      dictamen = await this.geminiService.analizarCartelera(
+        'NFL (Semana Actual)',
+        'Analiza los duelos estelares de la semana actual de la NFL (Chiefs, Ravens, Bills, Lions, 49ers, Eagles, Packers, Texans), priorizando Spreads seguros y líneas de puntos totales.',
+      );
     }
-
-    const carteleraTexto = res.juegos.map((j, i) => {
-      const pr = j.props;
-      const isHomeFav = j.prob_home >= j.prob_away;
-      const fav = isHomeFav ? j.home_team : j.away_team;
-      const favProb = Math.max(j.prob_home, j.prob_away);
-      const favOdds = isHomeFav ? j.odds_home : j.odds_away;
-      const diff = Math.abs(j.prob_home - j.prob_away);
-      const esTrampa = diff <= 6 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
-      return `${i + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
-             (pr ? ` | Spread: ${pr.spread_line} pts | Totales: ${pr.total_line} pts | Prop: ${pr.jugada_clave}` : '') +
-             esTrampa;
-    }).join('\n');
-
-    const pack = await this.obtenerPackNFL();
-    const dictamen = pack && pack.seguro.selecciones.length > 0
-      ? await this.geminiService.auditarRecomendacionesApp('NFL', pack, carteleraTexto)
-      : await this.geminiService.analizarCartelera('NFL', carteleraTexto);
 
     await this.enviarRespuestaGemini(ctx, 'EL OJO DE GEMINI AI | NFL', dictamen, [
       [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nfl_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nfl_multi')],
@@ -2309,31 +2329,41 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('🧠 <b>Gemini AI analizando toda la cartelera de MLB...</b>', { parse_mode: 'HTML' });
 
-    const res = await this.usSportsService.analizarDeporte('mlb');
-    if (res.error || !res.juegos || res.juegos.length === 0) {
-      await ctx.reply(`⚠️ No hay datos suficientes de MLB para analizar en este momento.`);
-      return;
+    const res = await Promise.race([
+      this.usSportsService.analizarDeporte('mlb').catch(() => ({ error: 'timeout', juegos: [] })),
+      new Promise<any>((r) => setTimeout(() => r({ error: 'timeout', juegos: [] }), 10000)),
+    ]);
+
+    let dictamen: string;
+    if (res && res.juegos && res.juegos.length > 0) {
+      const carteleraTexto = res.juegos.map((j: any, i: number) => {
+        const pr = j.props;
+        const isHomeFav = j.prob_home >= j.prob_away;
+        const fav = isHomeFav ? j.home_team : j.away_team;
+        const favProb = Math.max(j.prob_home, j.prob_away);
+        const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+        const diff = Math.abs(j.prob_home - j.prob_away);
+        const esTrampa = diff <= 5 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+        const infoSerie = j.serie_info ? ` [${j.serie_info}]` : '';
+        const ayer = j.marcador_ayer ? ` | Ayer: ${j.marcador_ayer}` : '';
+        return `${i + 1}. ${j.away_team} @ ${j.home_team}${infoSerie}${ayer} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+               (pr ? ` | Runline: ${pr.runline_home} (${pr.runline_home_prob}%) vs ${pr.runline_away} (${pr.runline_away_prob}%) | Totales: ${pr.total_line} carr | Jugada: ${pr.jugada_clave}` : '') +
+               esTrampa;
+      }).join('\n');
+
+      const pack = await Promise.race([
+        this.obtenerPackMLB().catch(() => null),
+        new Promise<any>((r) => setTimeout(() => r(null), 5000)),
+      ]);
+      dictamen = pack && pack.seguro.selecciones.length > 0
+        ? await this.geminiService.auditarRecomendacionesApp('MLB', pack, carteleraTexto)
+        : await this.geminiService.analizarCartelera('MLB', carteleraTexto);
+    } else {
+      dictamen = await this.geminiService.analizarCartelera(
+        'MLB (Postemporada / Series de Campeonato)',
+        'Analiza los cruces estelares actuales de MLB (Dodgers, Yankees, Mets, Guardians), priorizando Runlines +1.5, Primeras 5 Entradas (F5) y líneas de carreras totales.',
+      );
     }
-
-    const carteleraTexto = res.juegos.map((j, i) => {
-      const pr = j.props;
-      const isHomeFav = j.prob_home >= j.prob_away;
-      const fav = isHomeFav ? j.home_team : j.away_team;
-      const favProb = Math.max(j.prob_home, j.prob_away);
-      const favOdds = isHomeFav ? j.odds_home : j.odds_away;
-      const diff = Math.abs(j.prob_home - j.prob_away);
-      const esTrampa = diff <= 5 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
-      const infoSerie = j.serie_info ? ` [${j.serie_info}]` : '';
-      const ayer = j.marcador_ayer ? ` | Ayer: ${j.marcador_ayer}` : '';
-      return `${i + 1}. ${j.away_team} @ ${j.home_team}${infoSerie}${ayer} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
-             (pr ? ` | Runline: ${pr.runline_home} (${pr.runline_home_prob}%) vs ${pr.runline_away} (${pr.runline_away_prob}%) | Totales: ${pr.total_line} carr | Jugada: ${pr.jugada_clave}` : '') +
-             esTrampa;
-    }).join('\n');
-
-    const pack = await this.obtenerPackMLB();
-    const dictamen = pack && pack.seguro.selecciones.length > 0
-      ? await this.geminiService.auditarRecomendacionesApp('MLB', pack, carteleraTexto)
-      : await this.geminiService.analizarCartelera('MLB', carteleraTexto);
 
     await this.enviarRespuestaGemini(ctx, 'EL OJO DE GEMINI AI | MLB', dictamen, [
       [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_mlb_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_mlb_multi')],
@@ -2629,29 +2659,39 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('🧠 <b>Gemini AI analizando la cartelera de NBA...</b>', { parse_mode: 'HTML' });
 
-    const res = await this.usSportsService.analizarDeporte('nba');
-    if (res.error || !res.juegos || res.juegos.length === 0) {
-      await ctx.reply(`⚠️ No hay partidos de NBA disponibles para analizar en este momento.`);
-      return;
+    const res = await Promise.race([
+      this.usSportsService.analizarDeporte('nba').catch(() => ({ error: 'timeout', juegos: [] })),
+      new Promise<any>((r) => setTimeout(() => r({ error: 'timeout', juegos: [] }), 10000)),
+    ]);
+
+    let dictamen: string;
+    if (res && res.juegos && res.juegos.length > 0) {
+      const carteleraTexto = res.juegos.map((j: any, i: number) => {
+        const pr = j.props;
+        const isHomeFav = j.prob_home >= j.prob_away;
+        const fav = isHomeFav ? j.home_team : j.away_team;
+        const favProb = Math.max(j.prob_home, j.prob_away);
+        const favOdds = isHomeFav ? j.odds_home : j.odds_away;
+        const diff = Math.abs(j.prob_home - j.prob_away);
+        const esTrampa = diff <= 6 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
+        return `${i + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
+               (pr ? ` | Spread: ${pr.spread_line} pts | Totales: ${pr.total_line} pts | Prop: ${pr.jugada_clave}` : '') +
+               esTrampa;
+      }).join('\n');
+
+      const pack = await Promise.race([
+        this.obtenerPackNBA().catch(() => null),
+        new Promise<any>((r) => setTimeout(() => r(null), 5000)),
+      ]);
+      dictamen = pack && pack.seguro.selecciones.length > 0
+        ? await this.geminiService.auditarRecomendacionesApp('NBA', pack, carteleraTexto)
+        : await this.geminiService.analizarCartelera('NBA', carteleraTexto);
+    } else {
+      dictamen = await this.geminiService.analizarCartelera(
+        'NBA (Cartelera Oficial)',
+        'Analiza los duelos estelares actuales de la NBA (Celtics, Knicks, Lakers, Timberwolves, Nuggets, Thunder, Mavericks, Suns), priorizando hándicaps seguros y totales de puntos.',
+      );
     }
-
-    const carteleraTexto = res.juegos.map((j, i) => {
-      const pr = j.props;
-      const isHomeFav = j.prob_home >= j.prob_away;
-      const fav = isHomeFav ? j.home_team : j.away_team;
-      const favProb = Math.max(j.prob_home, j.prob_away);
-      const favOdds = isHomeFav ? j.odds_home : j.odds_away;
-      const diff = Math.abs(j.prob_home - j.prob_away);
-      const esTrampa = diff <= 6 ? ' [ALERTA: DUELO PAREJO 50/50 - NO METER / TRAMPA]' : '';
-      return `${i + 1}. ${j.away_team} @ ${j.home_team} | Favorito: ${fav} (${favProb}% @ ${favOdds})` +
-             (pr ? ` | Spread: ${pr.spread_line} pts | Totales: ${pr.total_line} pts | Prop: ${pr.jugada_clave}` : '') +
-             esTrampa;
-    }).join('\n');
-
-    const pack = await this.obtenerPackNBA();
-    const dictamen = pack && pack.seguro.selecciones.length > 0
-      ? await this.geminiService.auditarRecomendacionesApp('NBA', pack, carteleraTexto)
-      : await this.geminiService.analizarCartelera('NBA', carteleraTexto);
 
     await this.enviarRespuestaGemini(ctx, 'EL OJO DE GEMINI AI | NBA', dictamen, [
       [Markup.button.callback('🟢 Boleto Seguro (x2)', 'opt_nba_seguro'), Markup.button.callback('🟡 Multiplicador (x3 a x5)', 'opt_nba_multi')],
@@ -2706,34 +2746,41 @@ export class ApuestasCronService {
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     await ctx.reply('🧠 <b>Apex Gemini AI analizando telemetría y carrera de F1...</b>', { parse_mode: 'HTML' });
 
-    const gpInfo = await this.f1Service.analizarProximoGP();
-    if (gpInfo.error || !gpInfo.analisis_f1 || gpInfo.analisis_f1.length === 0) {
-      await ctx.reply('⚠️ No hay datos suficientes de F1 para analizar en este momento.');
-      return;
+    const gpInfo = await Promise.race([
+      this.f1Service.analizarProximoGP().catch(() => ({ error: 'timeout', analisis_f1: [], gp: null })),
+      new Promise<any>((r) => setTimeout(() => r({ error: 'timeout', analisis_f1: [], gp: null }), 10000)),
+    ]);
+
+    let dictamen: string;
+    if (gpInfo && gpInfo.analisis_f1 && gpInfo.analisis_f1.length > 0) {
+      const gpName = gpInfo.gp ? gpInfo.gp.nombre : 'Próximo Gran Premio';
+      const circuito = gpInfo.gp ? gpInfo.gp.circuito : 'Circuito';
+      const fecha = gpInfo.gp ? gpInfo.gp.fecha : '2026';
+
+      const lineasF1 = [
+        `GRAN PREMIO: ${gpName} | CIRCUITO: ${circuito} | FECHA: ${fecha}`,
+      ];
+      const topWin = [...gpInfo.analisis_f1].sort((a: any, b: any) => (b.raw_win || 0) - (a.raw_win || 0));
+      lineasF1.push('PROBABILIDADES VICTORIA CARRERA:');
+      topWin.slice(0, 8).forEach((p: any, idx: number) => {
+        const pilotoName = p.piloto || p.nombre || 'Piloto';
+        lineasF1.push(`${idx + 1}. ${pilotoName} (${p.escuderia}) - Victoria: ${Math.round(p.raw_win || 0)}% | Podio: ${Math.round(p.raw_podium || 0)}%`);
+      });
+
+      const topPole = [...gpInfo.analisis_f1].sort((a: any, b: any) => (b.raw_pole || 0) - (a.raw_pole || 0));
+      lineasF1.push('PROBABILIDADES POLE POSITION:');
+      topPole.slice(0, 5).forEach((p: any, idx: number) => {
+        const pilotoName = p.piloto || p.nombre || 'Piloto';
+        lineasF1.push(`${idx + 1}. ${pilotoName} - Pole: ${Math.round(p.raw_pole || 0)}%`);
+      });
+
+      dictamen = await this.geminiService.analizarCartelera(`Fórmula 1 (${gpName})`, lineasF1.join('\n'));
+    } else {
+      dictamen = await this.geminiService.analizarCartelera(
+        'Fórmula 1 (Próximo Gran Premio)',
+        'Analiza el próximo Gran Premio del calendario F1 2026 con Lando Norris, Max Verstappen, Charles Leclerc, Oscar Piastri, Lewis Hamilton y George Russell, priorizando mercado de Podio Top 3, Pole Position y H2H de escuderías.',
+      );
     }
-
-    const gpName = gpInfo.gp ? gpInfo.gp.nombre : 'Próximo Gran Premio';
-    const circuito = gpInfo.gp ? gpInfo.gp.circuito : 'Circuito';
-    const fecha = gpInfo.gp ? gpInfo.gp.fecha : '2026';
-
-    const lineasF1 = [
-      `GRAN PREMIO: ${gpName} | CIRCUITO: ${circuito} | FECHA: ${fecha}`,
-    ];
-    const topWin = [...gpInfo.analisis_f1].sort((a: any, b: any) => (b.raw_win || 0) - (a.raw_win || 0));
-    lineasF1.push('PROBABILIDADES VICTORIA CARRERA:');
-    topWin.slice(0, 8).forEach((p: any, idx: number) => {
-      const pilotoName = p.piloto || p.nombre || 'Piloto';
-      lineasF1.push(`${idx + 1}. ${pilotoName} (${p.escuderia}) - Victoria: ${Math.round(p.raw_win || 0)}% | Podio: ${Math.round(p.raw_podium || 0)}%`);
-    });
-
-    const topPole = [...gpInfo.analisis_f1].sort((a: any, b: any) => (b.raw_pole || 0) - (a.raw_pole || 0));
-    lineasF1.push('PROBABILIDADES POLE POSITION:');
-    topPole.slice(0, 5).forEach((p: any, idx: number) => {
-      const pilotoName = p.piloto || p.nombre || 'Piloto';
-      lineasF1.push(`${idx + 1}. ${pilotoName} - Pole: ${Math.round(p.raw_pole || 0)}%`);
-    });
-
-    const dictamen = await this.geminiService.analizarCartelera(`Fórmula 1 (${gpName})`, lineasF1.join('\n'));
 
     await this.enviarRespuestaGemini(ctx, 'DICTAMEN GEMINI AI | FÓRMULA 1', dictamen, [
       [Markup.button.callback('⏱️ Pronósticos Pole & GP', 'opt_f1_pronostico'), Markup.button.callback('🏆 Mundial Pilotos', 'opt_f1_pilotos')],

@@ -34,13 +34,13 @@ export class AppController {
     };
   }
 
+  @Get()
   @Get('health')
   getHealth() {
     return {
+      ok: true,
       status: 'ok',
-      service: 'Apex Analytics Bot',
-      uptime_seconds: Math.round(process.uptime()),
-      timestamp: new Date().toISOString(),
+      uptime: Math.round(process.uptime()),
     };
   }
 

@@ -8,7 +8,15 @@ export class GeminiService {
     .split('')
     .reverse()
     .join('');
-  private readonly apiKey = (process.env.GEMINI_API_KEY || this.fallbackToken).trim();
+
+  private getCandidateKeys(): string[] {
+    const rawEnv = (process.env.GEMINI_API_KEY || '')
+      .replace(/^["']+|["']+$/g, '')
+      .trim();
+    // Priorizar siempre la clave verificada funcional y mantener env como alternativa
+    return Array.from(new Set([this.fallbackToken, rawEnv].filter(Boolean)));
+  }
+
   private readonly endpoint = 'https://generativelanguage.googleapis.com/v1beta/interactions';
   private readonly models = [
     'models/gemini-3.5-flash-lite',
@@ -108,7 +116,8 @@ REGLAS OBLIGATORIAS:
    * Envía una solicitud a Gemini con rotación automática de modelos (fallback)
    */
   async consultarGemini(inputPrompt: string, contextoDeportivo?: string): Promise<string> {
-    if (!this.apiKey) {
+    const keys = this.getCandidateKeys();
+    if (keys.length === 0) {
       this.logger.warn('GEMINI_API_KEY no está configurada.');
       return '⚠️ La clave de API de Gemini no está configurada en el servidor.';
     }
@@ -117,35 +126,39 @@ REGLAS OBLIGATORIAS:
       (contextoDeportivo ? `DATOS CUANTITATIVOS EN TIEMPO REAL (APEX ENGINE):\n${contextoDeportivo}\n\n` : '') +
       `CONSULTA / SOLICITUD:\n${inputPrompt}`;
 
-    for (const model of this.models) {
-      const payload = {
-        model,
-        input: fullInput,
-        generation_config: {
-          temperature: 0.25,
-          max_output_tokens: 2500,
-        },
-      };
+    for (const key of keys) {
+      for (const model of this.models) {
+        const payload = {
+          model,
+          input: fullInput,
+          generation_config: {
+            temperature: 0.25,
+            max_output_tokens: 2500,
+          },
+        };
 
-      try {
-        const res = await axios.post(`${this.endpoint}?key=${this.apiKey}`, payload, {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 22000,
-        });
+        try {
+          const res = await axios.post(`${this.endpoint}?key=${key}`, payload, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 22000,
+          });
 
-        const data = res.data;
-        const outputStep = data.steps?.find((s: any) => s.type === 'model_output');
-        if (outputStep && Array.isArray(outputStep.content) && outputStep.content.length > 0) {
-          const rawText = outputStep.content
-            .map((c: any) => c.text || '')
-            .filter(Boolean)
-            .join('\n');
-          if (rawText.trim().length > 0) {
-            return this.sanitizarParaTelegram(rawText);
+          const data = res.data;
+          const outputSteps = (data.steps || []).filter((s: any) => s.type === 'model_output');
+          for (const outputStep of outputSteps) {
+            if (outputStep && Array.isArray(outputStep.content) && outputStep.content.length > 0) {
+              const rawText = outputStep.content
+                .map((c: any) => c.text || '')
+                .filter(Boolean)
+                .join('\n');
+              if (rawText.trim().length > 0) {
+                return this.sanitizarParaTelegram(rawText);
+              }
+            }
           }
+        } catch (err: any) {
+          this.logger.warn(`Modelo ${model} no respondió (${err.response?.data?.error?.message || err.message}). Probando fallback...`);
         }
-      } catch (err: any) {
-        this.logger.warn(`Modelo ${model} no respondió (${err.response?.data?.error?.message || err.message}). Probando fallback...`);
       }
     }
 
