@@ -1,4 +1,6 @@
-import { Controller, Get, Header } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Post } from '@nestjs/common';
+import { InjectBot } from 'nestjs-telegraf';
+import { Telegraf } from 'telegraf';
 import { PrismaService } from './prisma/prisma.service';
 import { UfcService } from './ai-engine/ufc.service';
 import { F1Service } from './ai-engine/f1.service';
@@ -6,11 +8,14 @@ import { SportsApiService } from './sports-api/sports-api.service';
 
 @Controller()
 export class AppController {
+  private readonly processedUpdates = new Set<number>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly ufcService: UfcService,
     private readonly f1Service: F1Service,
     private readonly sportsApi: SportsApiService,
+    @InjectBot() private readonly bot: Telegraf,
   ) {}
 
   @Get('api/resumen')
@@ -35,6 +40,14 @@ export class AppController {
   }
 
   @Get()
+  getRoot() {
+    return {
+      ok: true,
+      status: 'ok',
+      uptime: Math.round(process.uptime()),
+    };
+  }
+
   @Get('health')
   getHealth() {
     return {
@@ -42,6 +55,24 @@ export class AppController {
       status: 'ok',
       uptime: Math.round(process.uptime()),
     };
+  }
+
+  @Post('telegram-webhook')
+  @HttpCode(200)
+  handleTelegramWebhook(@Body() update: any) {
+    if (update && typeof update.update_id === 'number') {
+      if (!this.processedUpdates.has(update.update_id)) {
+        this.processedUpdates.add(update.update_id);
+        if (this.processedUpdates.size > 500) {
+          const first = this.processedUpdates.values().next().value;
+          if (first !== undefined) this.processedUpdates.delete(first);
+        }
+        this.bot.handleUpdate(update).catch((err: any) => {
+          console.error('Error en bot.handleUpdate:', err?.message || err);
+        });
+      }
+    }
+    return { ok: true };
   }
 
   @Get('dashboard')

@@ -10,31 +10,6 @@ dotenv.config();
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const bot = app.get<Telegraf>(getBotToken());
-  const expressApp = app.getHttpAdapter().getInstance();
-
-  // Dedoop simple en memoria para evitar procesar dos veces el mismo update_id si Telegram reintenta tras cold-start
-  const processedUpdates = new Set<number>();
-
-  expressApp.post('/telegram-webhook', (req: any, res: any) => {
-    // Responder 200 OK de inmediato a Telegram para que no acumule reintentos
-    res.status(200).send({ ok: true });
-
-    const update = req.body;
-    if (update && typeof update.update_id === 'number') {
-      if (processedUpdates.has(update.update_id)) {
-        return;
-      }
-      processedUpdates.add(update.update_id);
-      if (processedUpdates.size > 500) {
-        const first = processedUpdates.values().next().value;
-        if (first !== undefined) processedUpdates.delete(first);
-      }
-
-      bot.handleUpdate(update).catch((err: any) => {
-        console.error('Error procesando update en /telegram-webhook:', err?.message || err);
-      });
-    }
-  });
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
