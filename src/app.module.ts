@@ -15,6 +15,10 @@ dotenv.config();
     ScheduleModule.forRoot(),
     TelegrafModule.forRoot({
       token: process.env.TELEGRAM_BOT_TOKEN!,
+      launchOptions: false,
+      options: {
+        handlerTimeout: 180000,
+      },
     }),
     PrismaModule,
     AiEngineModule,
