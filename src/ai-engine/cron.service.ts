@@ -35,25 +35,43 @@ export class ApuestasCronService {
     private readonly geminiService: GeminiService,
   ) {}
 
-  // Cronjob cada 10 minutos para mantener el servicio activo en Render
-  @Cron('*/10 * * * *')
+  onModuleInit() {
+    // Al iniciar el contenedor, despertar inmediatamente el motor Python ML
+    setTimeout(() => {
+      this.keepAlivePing().catch(() => {});
+    }, 10000);
+  }
+
+  // Cronjob cada 4 minutos para mantener ambos servicios activos 24/7 en Render
+  @Cron('*/4 * * * *')
   async keepAlivePing() {
-    const rawUrl = process.env.DASHBOARD_URL || process.env.RENDER_EXTERNAL_URL;
+    const rawUrl =
+      process.env.DASHBOARD_URL ||
+      process.env.RENDER_EXTERNAL_URL ||
+      'https://apexanalitycs.onrender.com';
     if (rawUrl && rawUrl.startsWith('https://')) {
       try {
-        const pingUrl = rawUrl.replace(/\/dashboard$/, '') + '/health';
-        await axios.get(pingUrl, { timeout: 10000 });
+        const pingUrl = rawUrl.replace(/\/dashboard$/, '').replace(/\/$/, '') + '/health';
+        await axios.get(pingUrl, {
+          timeout: 15000,
+          headers: { 'User-Agent': 'ApexKeepAlive/2.0' },
+        });
         this.logger.log(`Keep-alive ping exitoso a ${pingUrl}`);
-      } catch (e) {
+      } catch (e: any) {
         this.logger.warn(`Keep-alive ping intento: ${e.message}`);
       }
     }
 
-    const pythonUrl = process.env.PYTHON_ML_URL || 'https://pythonmachinelearning.onrender.com';
+    const pythonUrl = (
+      process.env.PYTHON_ML_URL || 'https://pythonmachinelearning.onrender.com'
+    ).replace(/\/$/, '');
     try {
-      await axios.get(`${pythonUrl}/predecir-ufc`, { timeout: 15000 });
+      await axios.get(`${pythonUrl}/predecir-ufc`, {
+        timeout: 25000,
+        headers: { 'User-Agent': 'ApexKeepAlive/2.0' },
+      });
       this.logger.log(`Keep-alive ping exitoso a Python ML: ${pythonUrl}`);
-    } catch (e) {
+    } catch (e: any) {
       this.logger.warn(`Keep-alive ping intento a Python ML: ${e.message}`);
     }
 
