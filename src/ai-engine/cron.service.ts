@@ -43,39 +43,8 @@ export class ApuestasCronService {
   }
 
   // Cronjob cada 4 minutos para mantener ambos servicios activos 24/7 en Render
-  @Cron('*/4 * * * *')
   async keepAlivePing() {
-    const rawUrl =
-      process.env.DASHBOARD_URL ||
-      process.env.RENDER_EXTERNAL_URL ||
-      'https://apexanalitycs.onrender.com';
-    if (rawUrl && rawUrl.startsWith('https://')) {
-      try {
-        const pingUrl = rawUrl.replace(/\/dashboard$/, '').replace(/\/$/, '') + '/health';
-        await axios.get(pingUrl, {
-          timeout: 15000,
-          headers: { 'User-Agent': 'ApexKeepAlive/2.0' },
-        });
-        this.logger.log(`Keep-alive ping exitoso a ${pingUrl}`);
-      } catch (e: any) {
-        this.logger.warn(`Keep-alive ping intento: ${e.message}`);
-      }
-    }
-
-    const pythonUrl = (
-      process.env.PYTHON_ML_URL || 'https://pythonmachinelearning.onrender.com'
-    ).replace(/\/$/, '');
-    try {
-      await axios.get(`${pythonUrl}/predecir-ufc`, {
-        timeout: 25000,
-        headers: { 'User-Agent': 'ApexKeepAlive/2.0' },
-      });
-      this.logger.log(`Keep-alive ping exitoso a Python ML: ${pythonUrl}`);
-    } catch (e: any) {
-      this.logger.warn(`Keep-alive ping intento a Python ML: ${e.message}`);
-    }
-
-    // Pre-calentar análisis de F1 en segundo plano
+    // Desactivado el bucle 24/7 para no consumir las 750h mensuales de Render; el Webhook despierta bajo demanda
     this.f1Service.analizarProximoGP().catch(() => {});
   }
 
