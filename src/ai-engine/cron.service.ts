@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+// import { Cron } from '@nestjs/schedule';
 import { AiEngineService, PartidoInput, AnalisisIA } from './ai-engine.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { InjectBot, Update, Command, Ctx, Action, On } from 'nestjs-telegraf';
@@ -260,6 +260,81 @@ export class ApuestasCronService {
           [
             Markup.button.callback('📊 Estadísticas del Motor IA', 'menu_stats'),
           ],
+          [
+            Markup.button.callback('⚡ Activar / Despertar Motor IA', 'opt_activar_motor'),
+          ],
+        ]),
+      },
+    );
+  }
+
+  @Command('activar')
+  @Action('opt_activar_motor')
+  async accionActivarMotor(@Ctx() ctx: Context) {
+    if (ctx.callbackQuery) {
+      await ctx.answerCbQuery('⚡ Activando y verificando motores IA...').catch(() => {});
+    }
+
+    const msgEspera = await ctx.reply(
+      '⚡ <b>ACTIVANDO BACKEND Y MOTORES CUANTITATIVOS...</b>\n' +
+        '<i>Despertando servidor Python ML, verificando Gemini AI y precalentando cachés...</i>',
+      { parse_mode: 'HTML' },
+    );
+
+    const startMs = Date.now();
+    const pythonUrl = process.env.PYTHON_ML_URL || 'https://pythonmachinelearning.onrender.com';
+    let mlOnline = false;
+    let mlLatency = 0;
+
+    try {
+      await axios.get(`${pythonUrl}/health`, { timeout: 25000 });
+      mlOnline = true;
+      mlLatency = Date.now() - startMs;
+    } catch {
+      try {
+        const t2 = Date.now();
+        await axios.get('http://127.0.0.1:8000/health', { timeout: 5000 });
+        mlOnline = true;
+        mlLatency = Date.now() - t2;
+      } catch {
+        mlOnline = false;
+      }
+    }
+
+    // Pre-calentar cachés deportivas en segundo plano sin bloquear
+    this.f1Service.analizarProximoGP().catch(() => {});
+    this.ufcService.obtenerCarteleraUFC().catch(() => {});
+
+    const geminiOk = Boolean(this.geminiService);
+
+    try {
+      await ctx.telegram.deleteMessage(ctx.chat!.id, msgEspera.message_id);
+    } catch {}
+
+    const estadoML = mlOnline
+      ? `🟢 <b>Activo y Despierto</b> (${mlLatency} ms)`
+      : `🟡 <b>En espera / Modo Respaldo Local</b>`;
+
+    const estadoGemini = geminiOk
+      ? '🟢 <b>Conectado (Gemini 2.5 Flash)</b>'
+      : '🔴 <b>Sin API Key</b>';
+
+    await ctx.reply(
+      '⚡ <b>ESTADO DE ACTIVACIÓN DEL SISTEMA APEX</b> ⚡\n' +
+        '──────────────────────────────\n' +
+        '🟢 <b>Bot NestJS (Telegram):</b> Activo y respondiendo\n' +
+        `🧠 <b>Motor Python ML:</b> ${estadoML}\n` +
+        `✨ <b>Asistente Gemini AI:</b> ${estadoGemini}\n` +
+        '⏸️ <b>Cronjobs Automáticos:</b> Deshabilitados (0 consumo fantasma)\n' +
+        '──────────────────────────────\n' +
+        '✅ <i>Todos los servicios han sido activados bajo demanda. Ya puedes solicitar tus pronósticos o consultar a Gemini AI:</i>',
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🎯 ¿Qué Apostar Hoy? (3 Boletos)', 'menu_boletos_hoy')],
+          [Markup.button.callback('🧠 Consultar a Gemini AI', 'menu_gemini_info')],
+          [Markup.button.callback('🔄 Volver a Verificar Estado', 'opt_activar_motor')],
+          [Markup.button.callback('🏠 Menú Principal', 'menu_start_redirect')],
         ]),
       },
     );
@@ -3308,15 +3383,13 @@ export class ApuestasCronService {
   // AUTOMATIZACIÓN DE CRONJOBS (ELO AUTOMÁTICO EN VIERNES Y LUNES)
   // ------------------------------------------------------------------
 
-  // Cron 1: Viernes a las 8:00 AM (Actualización previa a la jornada)
-  @Cron('0 8 * * 5')
+  // Cron 1: Viernes a las 8:00 AM (Actualización previa a la jornada)  // @Cron('0 8 * * 5') // Deshabilitado para evitar consumo en segundo plano
   async cronActualizarEloViernes() {
     this.logger.log('⏰ Cronjob Viernes mañana: Actualizando clasificaciones y Elo de los 13 torneos...');
     await this.sportsApi.actualizarEstadisticasEquipos();
   }
 
-  // Cron 2: Lunes a las 18:00 (6:00 PM) (Actualización posterior a la jornada)
-  @Cron('0 18 * * 1')
+  // Cron 2: Lunes a las 18:00 (6:00 PM) (Actualización posterior a la jornada)  // @Cron('0 18 * * 1') // Deshabilitado para evitar consumo en segundo plano
   async cronActualizarEloLunes() {
     this.logger.log('⏰ Cronjob Lunes tarde: Actualizando clasificaciones y Elo tras jornada...');
     await this.sportsApi.actualizarEstadisticasEquipos();
@@ -3326,8 +3399,7 @@ export class ApuestasCronService {
   // NOTIFICACIONES PUSH PROACTIVAS (ALERTAS AUTOMÁTICAS DE FIN DE SEMANA)
   // ------------------------------------------------------------------
 
-  // Push 1: Viernes 17:00 (Alerta Cartelera UFC y +EV)
-  @Cron('0 17 * * 5')
+  // Push 1: Viernes 17:00 (Alerta Cartelera UFC y +EV)  // @Cron('0 17 * * 5') // Deshabilitado para evitar consumo en segundo plano
   async cronAlertaPushUFC() {
     this.logger.log('📢 Ejecutando cron push proactivo de UFC (Viernes)...');
     const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -3366,8 +3438,7 @@ export class ApuestasCronService {
     }
   }
 
-  // Push 2: Sábado 15:30 (Alerta F1 Post-Qualy y Monte Carlo)
-  @Cron('30 15 * * 6')
+  // Push 2: Sábado 15:30 (Alerta F1 Post-Qualy y Monte Carlo)  // @Cron('30 15 * * 6') // Deshabilitado para evitar consumo en segundo plano
   async cronAlertaPushF1() {
     this.logger.log('📢 Ejecutando cron push proactivo de F1 (Sábado post-qualy)...');
     const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -3409,8 +3480,7 @@ export class ApuestasCronService {
     }
   }
 
-  // Push 3: Domingo 09:30 (Alerta Jornada Dominical de Fútbol)
-  @Cron('30 9 * * 0')
+  // Push 3: Domingo 09:30 (Alerta Jornada Dominical de Fútbol)  // @Cron('30 9 * * 0') // Deshabilitado para evitar consumo en segundo plano
   async cronAlertaPushFutbol() {
     this.logger.log('📢 Ejecutando cron push proactivo de Fútbol (Domingo)...');
     const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -3549,9 +3619,7 @@ export class ApuestasCronService {
       this.logger.error('Error al liquidar apuestas pendientes', error);
       return liquidadasTotal;
     }
-  }
-
-  @Cron('0 */2 * * *')
+  }  // @Cron('0 */2 * * *') // Deshabilitado para evitar consumo en segundo plano
   async cronLiquidarApuestas() {
     await this.liquidarApuestasPendientes();
   }
@@ -4532,9 +4600,7 @@ export class ApuestasCronService {
       this.logger.error('Error en comando /stats', error);
       await ctx.reply('❌ Error al obtener estadísticas.');
     }
-  }
-
-  @Cron('0 9 * * *')
+  }  // @Cron('0 9 * * *') // Deshabilitado para evitar consumo en segundo plano
   async cronJornadaDiaria() {
     this.logger.log('Cronjob diario activado...');
     const fechas = this.getRangoFechasDinamico(0, 15);
